@@ -107,7 +107,7 @@ Infraestrutura inicial pode ser preparada para tornar os testes executáveis; n�
 | Concorrência | Regras isoladas não substituem races | Três processos, disputa de saldo e progresso independente de wallets diferentes |
 | Keycloak | Extração de identidade e política de autorização | Tokens reais; ausência, expiração, issuer/audience incorretos, outro provedor e papel insuficiente |
 | Consultas | Cursor inválido, códigos HTTP e formatação | Paginação estável, autorização de recurso, reconciliação consistente e health |
-| Observabilidade | Redação de campos sensíveis e classificação | Métricas e logs correspondentes a falhas, retries, rejeições e divergência |
+| Observabilidade | Remoção de campos sensíveis e classificação | Métricas e logs correspondentes a falhas, retries, rejeições e divergência |
 
 Todos os cenários financeiros verificam wallet.balance igual ao saldo reconstruído pelo ledger, quantidade de lançamentos e ausência de efeito duplicado. Testes concorrentes devem usar barreiras/sinais de coordenação e processos reais, com banco e filas isolados por execução e cleanup determinístico.
 
