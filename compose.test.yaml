@@ -1,0 +1,17 @@
+name: wagering-test
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: wagering_test
+    ports: !override ["127.0.0.1:55433:5432"]
+    volumes: !override
+      - postgres-test-data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/10-init.sql:ro
+  localstack:
+    ports: !override ["127.0.0.1:4567:4566"]
+  keycloak:
+    environment:
+      KC_HOSTNAME: http://localhost:8181
+    ports: !override ["127.0.0.1:8181:8080"]
+volumes:
+  postgres-test-data:
