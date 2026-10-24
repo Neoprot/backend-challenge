@@ -8,8 +8,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | --- | --- |
 | 1 — Bootstrap e ambiente real | COMPLETE |
 | 2 — Money | COMPLETE |
-| 3 — Wallet e ledger | IN_PROGRESS |
-| 4–19 | PENDING |
+| 3 — Wallet e ledger | COMPLETE |
+| 4 — Transações e eventos | IN_PROGRESS |
+| 5–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -48,3 +49,17 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Revisão de qualidade — PASS:** valor decimal é campo privado nativo, instância congelada, saída em objeto independente; precisão suficiente para soma de dois valores do limite; errors têm código estável. Sem achados pendentes.
 
 **Implementer Outcome:** DONE. **Risco pendente:** round-trip PostgreSQL será comprovado na tarefa 5. **Próxima ação:** tarefa 3.
+
+## Tarefa 3 — Wallet e lançamento imutável
+
+**Status:** COMPLETE. **Execution Mode:** Inline.
+
+**Arquivos:** src/wallets/domain/wallet.ts, ledger-entry.ts e respectivos testes unitários.
+
+**TDD:** scaffolds importáveis produziram falhas; teste negativo do ledger foi fortalecido para exigir DomainError, obtendo 3/3 falhas antes da implementação. GREEN: 9 testes focados, 39 asserções; suíte completa 44 pass/0 fail, 132 asserções; typecheck passa.
+
+**Conformidade — PASS:** abertura version 1, débito/crédito com lançamento correspondente, saldo insuficiente/moeda/zero/overflow sem alteração parcial, incremento somente quando há movimento, create valida equação e rehydrate só reconstrói. Garantias de persistência permanecem na tarefa 5.
+
+**Qualidade — PASS:** campos nativos privados; Money imutável; snapshots de datas impedem alteração indireta; ledger congelado; wallet só muda depois que o lançamento foi validado. Nenhum achado pendente.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 4.
