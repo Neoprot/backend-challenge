@@ -7,8 +7,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | Tarefa | Estado |
 | --- | --- |
 | 1 — Bootstrap e ambiente real | COMPLETE |
-| 2 — Money | IN_PROGRESS |
-| 3–19 | PENDING |
+| 2 — Money | COMPLETE |
+| 3 — Wallet e ledger | IN_PROGRESS |
+| 4–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -33,3 +34,17 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Implementer Outcome:** DONE.
 
 **Próxima ação:** tarefa 2, Money por TDD.
+
+## Tarefa 2 — Money
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, agente money_tdd; revisão e validação independente pelo controlador.
+
+**Intenção e arquivos:** valor monetário exato e imutável em src/shared/domain/money.ts, erro em domain-error.ts, testes em test/unit/money.test.ts.
+
+**TDD:** 30 falhas comportamentais após scaffold importável; implementação com clone Decimal de precisão 31; GREEN com 30 testes e 80 asserções. Controlador repetiu teste focado e typecheck, ambos exit 0. Entradas rejeitam números, expoentes, negativos, escala variável e moedas malformadas. Cobertura de overflow positivo/negativo, sinais internos, rehydrate e isolamento da precisão global.
+
+**Revisão de conformidade — PASS:** métodos do contrato completos; NUMERIC(30,2), escala fixa, construtor privado, factory, moeda explícita e domínio independente. Não usa number para cálculos monetários.
+
+**Revisão de qualidade — PASS:** valor decimal é campo privado nativo, instância congelada, saída em objeto independente; precisão suficiente para soma de dois valores do limite; errors têm código estável. Sem achados pendentes.
+
+**Implementer Outcome:** DONE. **Risco pendente:** round-trip PostgreSQL será comprovado na tarefa 5. **Próxima ação:** tarefa 3.
