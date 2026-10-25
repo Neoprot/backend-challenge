@@ -19,8 +19,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 11 — Contrato HTTP e composição | COMPLETE |
 | 12 — Keycloak e autorização | COMPLETE |
 | 13 — Inbox e consumidor SQS | COMPLETE |
-| 14 — Outbox recuperável | IN_PROGRESS |
-| 15–19 | PENDING |
+| 14 — Outbox recuperável | PARTIAL — aceite de processos na tarefa 18 |
+| 15 — Retry, DLQ e ciclo de vida | IN_PROGRESS |
+| 16–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -239,3 +240,19 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Follow-ups:** consumidor ainda é invocado explicitamente; bootstrap contínuo, renovação de visibilidade, DLQ e shutdown serão ligados na15. Aceite com processos distintos permanece na18. Sem achados de código pendentes.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa14.
+
+## Tarefa 14 — outbox recuperável e publishers
+
+**Status:** PARTIAL, escopo funcional concluído; morte/reinício de processos SO e harness final na18 conforme plano. **Execution Mode:** Delegated, outbox_tdd, conformidade pelo controlador e qualidade independente outbox_quality_review.
+
+**Arquivos:** OutboxMessage, porta/store PostgreSQL, OutboxPublisher, consumidor demonstrativo de evento com inbox persistente, testes unit/outboxIT/publishers.
+
+**TDD:** RED unitário e IT antes da implementação: claim vazio e retry não persistido. Revisão acrescentou RED para envelope duplicado/perda de version e correlationId, mutabilidade, envio sequencial e retorno prematuro do lote. GREEN final:213 unitários/554 asserções pelo implementador. Controlador repetiu12 focados/90 asserções (8unit,3IT reais,1race com barreiras) e typecheck. Revisor independente repetiu8 unitários/44 asserções, sem achados.
+
+**Conformidade — PASS no escopo14:** claim curto com SKIPLOCKED e owner/lease no PostgreSQL, commit antes de rede comprovado por leitura externa e NOWAIT. Lease vencido permite retomada; owner incorreto/vencido não confirma nem altera tentativas. Publicação usa exatamente payload confirmado e eventId estável como dedupId; não apaga evento. Falha SQS real persiste backoff base1s/teto5min, sem descarte. Consumidor demonstrativo registra eventId/hash antes de ack e ignora duplicata, incluindo reentrega além da janela FIFO simulada somente pelo harness.
+
+**Qualidade — PASS:** domínio usa campo privado nativo, cópias e freeze. Lote concorrente bounded, prazo de envio <= metade do lease, timer cancelado e allSettled aguardando todos envios antes de retorno/erro. Produção usa relógio PostgreSQL; Clock/IDs de escopo são usados só para isolação e teste determinístico, sem limpeza de eventos globais. Demo não executa efeito externo nem realimenta comandos.
+
+**Aceite pendente:** testes atuais trocam instâncias/contextos reais, mas não substituem morte/reinício de processos SO. Validar na18 antes de marcar COMPLETE. Supervisor/bootstrap/shutdown pertencem à15. Sem achados de código pendentes.
+
+**Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa15.
