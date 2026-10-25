@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "bun src/bootstrap/main.ts",
+    "start:workers": "bun src/workers/main.ts",
     "start:dev": "bun --watch src/bootstrap/main.ts",
     "typecheck": "tsc --noEmit",
     "test:unit": "bun test test/unit",

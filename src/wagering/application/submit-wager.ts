@@ -38,6 +38,19 @@ export class SubmitWager {
       }
     }
   }
+  /** Apenas após rollback de falha técnica permanente de uma operação já validada. */
+  async recordPermanentFailure(input: unknown, context: SubmissionContext): Promise<ProcessingResponse> {
+    if (typeof context.idempotencyKey !== 'string' || !context.idempotencyKey.trim() || context.idempotencyKey.length > 320) {
+      throw new ApplicationError('INVALID_IDEMPOTENCY_KEY', 'Idempotency-Key é obrigatória e deve ter até 320 caracteres.', 400);
+    }
+    const { payload, hash } = canonicalPayload(input);
+    const transaction = WagerTransaction.create({ ...payload, money: Money.from(payload.money), id: this.ids.next(),
+      idempotencyKey: context.idempotencyKey, payloadHash: hash, createdAt: this.clock.now() });
+    return this.uow.runIdempotent(transaction, async () => {
+      transaction.fail('PERMANENT_INFRASTRUCTURE_FAILURE');
+      return { transactionId: transaction.id, status: transaction.status, failureCode: transaction.failureCode!, httpStatus: 500, terminal: true };
+    }, { lockWallet: true, ...(context.inbox === undefined ? {} : { inbox: context.inbox }) });
+  }
   private async process(tx: WagerTransaction, session: FinancialSession, context: SubmissionContext): Promise<ProcessingResult> {
     const wallet = await session.lockWallet(tx.walletId);
     const reference = tx.referenceExternalTransactionId === undefined ? undefined

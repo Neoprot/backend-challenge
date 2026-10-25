@@ -20,8 +20,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 12 — Keycloak e autorização | COMPLETE |
 | 13 — Inbox e consumidor SQS | COMPLETE |
 | 14 — Outbox recuperável | PARTIAL — aceite de processos na tarefa 18 |
-| 15 — Retry, DLQ e ciclo de vida | IN_PROGRESS |
-| 16–19 | PENDING |
+| 15 — Retry, DLQ e ciclo de vida | PARTIAL — aceite de sinais SO na tarefa 18 |
+| 16 — Reprocessamento de referências | IN_PROGRESS |
+| 17–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -256,3 +257,23 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Aceite pendente:** testes atuais trocam instâncias/contextos reais, mas não substituem morte/reinício de processos SO. Validar na18 antes de marcar COMPLETE. Supervisor/bootstrap/shutdown pertencem à15. Sem achados de código pendentes.
 
 **Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa15.
+
+## Tarefa 15 — retry, DLQ e ciclo de vida
+
+**Status:** PARTIAL, escopo funcional validado; sinais reais de SO/SIGKILL ficam no harness18. **Execution Mode:** Delegated, recovery_lifecycle_tdd; conformidade pelo controlador e qualidade independente recovery_quality_review.
+
+**Arquivos:** worker-lifecycle, SqsConsumer, runtime/main de workers, SubmitWager.recordPermanentFailure, transient-failure, RecoveringPostgreSqlDriver/orm, scripts, testes retry/DLQ/recovery e helper de outage restrito.
+
+**TDD:** RED unitário e IT antes do núcleo: classificação/backoff/DLQ/preflight, ausência de heartbeat, drain indevido e recebimento durante banco indisponível. Revisões acrescentaram RED para envio permanente àDLQ antesack/replayFAILED, RPCtravado, URLconfig cominput sensível e conexãoPGsemcode. Defeito reproduzido na stack: rollback em conexão morta deixava checkout preso e close não terminava em2s; regressionRED e depoisGREEN com extensão local do driver.
+
+**Validação:** implementador executou226 unitários e117 integração/concorrência completos, incluindo migrations reversíveis, financeiros eIdP real. Controlador repetiu27 testes/171 asserções (retry,Dlq,recovery), todos passam em41s; typecheck passa. Revisor repetiu13 unitários/56 asserções e não encontrou achados. Dockerps independente confirmou PostgreSQL/LocalStack/Keycloak healthy após os testes.
+
+**Conformidade — PASS no escopo15:** rejeição confirmadaack; transient nuncaFAILED, preflightDB com backoff evita esgotar5entregas. Malformada preserva corpo e identidade naDLQ, durableSend antesDelete. Permanente atribuível confirmaFAILED+resultado500+inbox numa nova SQL apósrollback semsaldo/ledger, depoisDLQ eack; falhaSend e replayFAILED preservamorigem/repetemenvio. 404/409 nãoalteramterminal original. Redrive5 testadoreal, duplicatasDLQ operacionais esperadas comsourceMessageIdestável, sem exatamenteumaentrega.
+
+**Ciclo de vida:** heartbeatreal mantémvisibilidade, stopcancelalongpoll, drain aguardaou devolvevisibility0. RPCReceive temdeadline maiorquelongpoll; DLQ/acklimitados. Entrypoint start:workers iniciaHTTPautenticado+consumer+publisher; createApplication continuasemloops. Watchdog cobre drain+close, sai1 noprazo semafirmarSQLconcluída. Aceite dos sinais reais reservado18.
+
+**Ajuste técnico da stack aprovado:** MikroORM7.2.5 usaControlledTransaction doKysely, que libera checkout somente após awaitrollback. Emconexãomorta oawaitfalha e impede release. SubclassePostgreSqlDriver decora createKyselyDialect/rollbackTransaction e permiteliberação somente para erros inequívocos deconexãomorta; erroORIGINAL continua propagado. Semnode_modules/privados/trocastack; PGpool descarta cliente nãoqueryable. ErrosSQLnormais,57014,40001,constraints e desconhecidos não são suprimidos. IT comqueda duranteSQL prova retomada única eclose<2s. Documentar workaround eversões na19.
+
+**Trade-offs:** FAILED técnico não inventa novo evento; auditoria fica no estado/hash/resultado/inbox e observabilidade17. OutageSQS prova recuperação daoutboxPG emfila recriada; LocalStack atualsemPERSISTENCE não demonstra durabilidade interna dobroker. Helperconfere labels wagering-test/serviço antesstop e finallyrestaurahealthy+emissãorealKeycloak. Nenhum recurso dev/volume foi removido.
+
+**Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa16.

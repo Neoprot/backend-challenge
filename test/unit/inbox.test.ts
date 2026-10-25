@@ -70,7 +70,7 @@ test.each([false, true])('consumidor confirma somente após retorno do commit; f
   expect(submitted).toBe(true); expect(beforeAck).toBe(!failed);
   expect(caught).toBe(failed ? failure : undefined);
   expect(commands.filter(c => c instanceof DeleteMessageCommand)).toHaveLength(failed ? 0 : 1);
-  expect((commands[0] as ReceiveMessageCommand).input).toMatchObject({ WaitTimeSeconds: 20, MaxNumberOfMessages: 1, MessageSystemAttributeNames: ['ApproximateReceiveCount'] });
+  expect((commands[0] as ReceiveMessageCommand).input).toMatchObject({ WaitTimeSeconds: 20, MaxNumberOfMessages: 1, MessageSystemAttributeNames: ['ApproximateReceiveCount', 'MessageGroupId'] });
   if (!failed) expect((commands[1] as DeleteMessageCommand).input.ReceiptHandle).toBe('receipt');
   send.mockRestore(); sqs.destroy();
 });
