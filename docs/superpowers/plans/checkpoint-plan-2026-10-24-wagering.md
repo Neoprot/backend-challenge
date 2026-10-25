@@ -12,8 +12,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 4 — Transações e eventos | COMPLETE |
 | 5 — Schema e migrations | COMPLETE |
 | 6 — Unidade de trabalho e abertura | COMPLETE |
-| 7 — Canonicalização e idempotência | IN_PROGRESS |
-| 8–19 | PENDING |
+| 7 — Canonicalização e idempotência | COMPLETE |
+| 8 — Processamento financeiro compartilhado | IN_PROGRESS |
+| 9–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -112,3 +113,19 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Qualidade — PASS após correção:** porta sem tipos ORM, relógio/IDs injetáveis, helpers de falha apenas nos testes, classificação restrita à constraint de carteira duplicada, causa original preservada. Serialização da outbox limitada aos DTOs dos eventos concretos. Sem achados pendentes.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 7.
+
+## Tarefa 7 — canonicalização e idempotência persistente
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, idempotency_tdd, com revisão independente do controlador.
+
+**Arquivos:** canonical-payload, processing-result, porta idempotency, extensão PostgresUnitOfWork, testes canonical/idempotency.
+
+**TDD:** 22 RED unitários e 5 RED de integração observados pelo implementador; GREEN ampliado para 22 unitários e 9 IT. Revisão fortaleceu a corrida: aguarda bloqueio real via pg_blocking_pids antes de liberar o primeiro commit. Controlador confirmou 31 pass/79 asserções; suíte unitária completa 105 pass/291 asserções; typecheck passa.
+
+**Conformidade — PASS:** hash SHA-256 apenas dos campos de negócio validados; ordem recursiva estável, Money exato e OPENING externo recusado. Reserva, callback financeiro e resultado usam a mesma transação. Recovery de unicidade ocorre somente após rollback e em novo fork. Identidade e hash são comparados; conflitos retornam 409 sem novo efeito. Snapshot de resultado preservado, flag de replay derivada e ausente do JSON persistido.
+
+**Qualidade — PASS:** classificação limitada às duas constraints esperadas, outras falhas propagadas. IT prova rollback de reserva/evento e reexecução posterior, estados pendente/rejeitado e rejeição de identidade divergente mesmo com hash forjado. Sem achados pendentes.
+
+**Ambiente:** validação independente inicialmente encontrou ECONNREFUSED. Docker Desktop falhou por sockets temporários antigos em AppData/Local/Docker/run. Diretório preservado como run.stale-20261025, novo run criado; volumes mantidos. Docker voltou a responder e IT repetido com sucesso. Não foi tratado como RED de negócio.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 8.
