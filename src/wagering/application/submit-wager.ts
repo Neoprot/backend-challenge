@@ -5,6 +5,7 @@ import type { ProcessingResponse } from './processing-result';
 import type { FinancialSession } from '../../shared/application/unit-of-work';
 import type { ProcessingResult } from './processing-result';
 import { ApplicationError } from '../../shared/application/application-error';
+import { isTransientFailure } from '../../shared/application/transient-failure';
 import { canonicalPayload } from './canonical-payload';
 import { Money } from '../../shared/domain/money';
 import { WagerTransaction } from '../domain/wager-transaction';
@@ -28,7 +29,7 @@ export class SubmitWager {
       try {
         return await this.uow.runIdempotent(transaction, session => this.process(transaction, session, context), { lockWallet: true });
       } catch (error) {
-        if (!isTransient(error)) throw error;
+        if (!isTransientFailure(error)) throw error;
         if (attempt >= 2) throw new ApplicationError('PROCESSING_UNAVAILABLE', 'Processamento temporariamente indisponível. Tente novamente com a mesma chave.', 503);
         await this.sleep(25 * 2 ** attempt);
       }
@@ -66,10 +67,4 @@ export class SubmitWager {
     await session.enqueue(WagerTransactionProcessed.from(tx, eventContext()));
     return { transactionId: tx.id, status: tx.status, balance: wallet.balance.toJSON(), httpStatus: 200, terminal: true };
   }
-}
-
-function isTransient(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  const { code } = error as { code?: unknown };
-  return typeof code === 'string' && (['40P01', '40001', '55P03', '57014', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT'].includes(code) || code.startsWith('08'));
 }

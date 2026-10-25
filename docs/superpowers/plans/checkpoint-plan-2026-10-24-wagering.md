@@ -16,8 +16,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 8 — Processamento financeiro compartilhado | COMPLETE |
 | 9 — Referências e reversão única | PARTIAL — aceite multiprocessos na tarefa 18 |
 | 10 — Consultas e reconciliação | COMPLETE |
-| 11 — Contrato HTTP e composição | IN_PROGRESS |
-| 12–19 | PENDING |
+| 11 — Contrato HTTP e composição | COMPLETE |
+| 12 — Keycloak e autorização | IN_PROGRESS |
+| 13–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -180,3 +181,23 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Qualidade — PASS após refatoração:** ordenação qualificada pela coluna timestamp, evitando ordenar alias textual calculado e permitindo usar índice existente. Portas separadas do ORM, parâmetros SQL vinculados, cursor canônico e sem perda de microssegundos. Number é usado apenas para contagem de lançamentos, validada como inteiro seguro. Sem achados pendentes.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 11.
+
+### Revisão independente da base financeira — tarefas 6–10
+
+Skill requesting-code-review aplicada. Agente financial_review inspecionou a faixa f2230e8..37955770c6121ed3a4e96ae6e4707cbe77af9166 sem alterações locais da camada HTTP. Resultado: nenhum achado Critical, Important ou Minor que exigisse alteração. Executou 154 testes com sucesso: 60 IT/concorrência e 94 unitários. Não executou down/reset nem testes HTTP. Confirmou atomicidade, recuperação de unicidade, lock antes de INSERT, resultado original, reversão única, snapshot e cursor. A aprovação é limitada à base financeira; aceite multiprocessos continua pendente na tarefa 18.
+
+## Tarefa 11 — contrato HTTP e composição NestJS
+
+**Status:** COMPLETE no escopo desta etapa; autenticação obrigatória antes da entrega pertence à tarefa 12 seguinte. **Execution Mode:** Delegated, http_tdd, correções e revisão pelo controlador, qualidade independente por http_quality_review.
+
+**Arquivos:** bootstrap/main/app.module/tokens, http/controllers/contracts/error.filter/readiness, porta/adaptador de consulta de transação, classificador compartilhado transient-failure, scripts start, testes contracts/error-filter/http.
+
+**TDD:** 4 RED de contratos HTTP e 4 RED IT sobre scaffold Nest importável; GREEN. Revisão preservou os 25 testes anteriores de cursor que haviam sido substituídos. Controlador adicionou regressão para falhas transitórias de consulta: 4 RED recebendo500 em vez de503, corrigidas por classificador compartilhado com SubmitWager. Focados finais 49 pass/207 asserções; typecheck passa. Suíte integrada completa 78 pass/497 asserções, além do preflight3. Revisão independente executou34 unitários/82 asserções sem falhas.
+
+**Conformidade — PASS:** todos endpoints do README, status201/200/202/400/404/409/422/503, chave obrigatória, UUID normalizado, Money string, enum/limites/campos desconhecidos validados em runtime. Controllers reutilizam casos de uso; consultas preservam providerId e snapshot original. Correlação segura precede parser JSON e aparece nos erros sanitizados. DI por tokens/factories explícitos, reflect-metadata no bootstrap; aplicação importável e tests em loopback/porta efêmera. Readiness verifica PostgreSQL e SQS reais, liveness separada.
+
+**Qualidade — PASS:** parent e http_quality_review sem achados pendentes. Readiness passou a aguardar allSettled no fluxo normal/erro imediato, corrigindo fechamento do pool enquanto SELECT1 ainda estava em andamento. Nenhuma regra financeira duplicada. Classificação técnica compartilhada preserva erros desconhecidos como500 e não expõe SQL/credenciais.
+
+**Riscos/follow-ups:** prazo de readiness limita resposta, mas cancelamento da consulta PostgreSQL após deadline pode ser aperfeiçoado na tarefa17. Guard global será conectado agora na tarefa12; API ainda não foi entregue ou publicada sem autenticação.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa12.
