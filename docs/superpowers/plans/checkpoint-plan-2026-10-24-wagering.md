@@ -14,8 +14,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 6 — Unidade de trabalho e abertura | COMPLETE |
 | 7 — Canonicalização e idempotência | COMPLETE |
 | 8 — Processamento financeiro compartilhado | COMPLETE |
-| 9 — Referências e reversão única | IN_PROGRESS |
-| 10–19 | PENDING |
+| 9 — Referências e reversão única | PARTIAL — aceite multiprocessos na tarefa 18 |
+| 10 — Consultas e reconciliação | IN_PROGRESS |
+| 11–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -146,3 +147,19 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Qualidade — PASS:** domínio sem ORM, callback compartilhável por HTTP/SQS, erros permanentes preservados, helper de falha limitado aos métodos realmente suportados. Testes comprovam rollback de débito, crédito e rejeição depois dos flushes. Sem achados pendentes.
 
 **Implementer Outcome:** DONE. **Limite desta etapa:** referências ainda aguardam; resolução pertence à tarefa 9. **Próxima ação:** tarefa 9.
+
+## Tarefa 9 — referências e reversão única
+
+**Status:** PARTIAL, implementação funcional concluída; aceite com processos distintos explicitamente reservado à tarefa 18 no plano. **Execution Mode:** Delegated, references_tdd, revisão independente pelo controlador.
+
+**Arquivos:** FinancialSession, PostgresUnitOfWork, SubmitWager, dublês afetados, reference-fixture, IT references e concurrency/reversal.
+
+**TDD:** 12 RED IT e 2 RED unitários; GREEN ampliado para 20 IT de referências, 11 unitários de submit e uma corrida com dois contextos. Controlador repetiu esses testes mais regras: 51 pass/208 asserções; typecheck passa. Implementador executou suíte afetada: 165 pass/638 asserções.
+
+**Conformidade — PASS no escopo desta etapa:** lookup por provedor/id externo, referência interna persistida ao concluir, validação dos vínculos e valor integral, tipos permitidos, pendência sem referência/terminalidade, rejeição de referência rejeitada. Qualquer combinação de segunda reversão é recusada; rejeição não ocupa direito; ROLLBACK de REFUND não reabre BET. Insuficiência em reversão de WIN preserva saldo/ledger e permite outra tentativa futura. Pendência registra deadline de 24h e próxima tentativa desde aceitação, sem repetir evento em replay.
+
+**Qualidade — PASS:** somente a wallet atual é bloqueada, evitando locks cruzados em referências divergentes. Regras permanecem puras; índice parcial continua como última garantia. Race aguarda dois locks reais no PostgreSQL e verifica um crédito, um evento Processed e um Rejected. Sem achados de código pendentes.
+
+**Risco/aceite pendente:** dois contextos no mesmo processo não substituem o harness multiprocessos. Repetir cenário na tarefa 18 antes de marcar COMPLETE e entregar. Worker de referências pertence à tarefa 16.
+
+**Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa 10, conforme sequência aprovada.

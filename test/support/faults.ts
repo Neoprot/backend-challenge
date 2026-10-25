@@ -3,6 +3,8 @@ import type { FinancialSession, UnitOfWork } from '../../src/shared/application/
 export function failAfter(uow: UnitOfWork, method: 'insertWallet' | 'insertWager' | 'insertLedger' | 'enqueue', error: Error, reached: () => void): UnitOfWork {
   return { run: work => uow.run(session => {
     const wrapped: FinancialSession = {
+      findReference: (provider, external) => session.findReference(provider, external),
+      hasCompletedReversal: id => session.hasCompletedReversal(id),
       lockWallet: value => session.lockWallet(value),
       saveWallet: value => session.saveWallet(value),
       insertWallet: async value => { await session.insertWallet(value); if (method === 'insertWallet') { reached(); throw error; } },

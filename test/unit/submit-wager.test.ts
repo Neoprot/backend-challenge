@@ -4,19 +4,21 @@ import type { IdempotentUnitOfWork } from '../../src/wagering/application/idempo
 import type { FinancialSession } from '../../src/shared/application/unit-of-work';
 import { Wallet } from '../../src/wallets/domain/wallet';
 import { Money } from '../../src/shared/domain/money';
-import type { WagerTransaction } from '../../src/wagering/domain/wager-transaction';
+import { WagerTransaction } from '../../src/wagering/domain/wager-transaction';
 
 const at = new Date('2026-10-25T12:00:00.000Z');
 const walletId = '00000000-0000-4000-8000-000000000001', playerId = '00000000-0000-4000-8000-000000000002';
 const payload = { providerId: 'aurora', externalTransactionId: 'external', walletId, playerId, roundId: 'round', gameId: 'game', kind: 'BET', money: { amount: '25.00', currency: 'BRL' } };
 const context = { idempotencyKey: 'key', correlationId: 'correlation', causationId: 'message' };
-function fixture(failures: number, code = '40P01') {
+function fixture(failures: number, code = '40P01', reference?: WagerTransaction, reversed = false) {
   const transactions: WagerTransaction[] = [], waits: number[] = [], statuses: string[] = [], actions: string[] = [];
   let sequence = 0;
   const uow: IdempotentUnitOfWork = { runIdempotent: async (tx, work, options) => {
     transactions.push(tx); statuses.push(tx.status); expect(options?.lockWallet).toBe(true);
     const wallet = Wallet.open({ id: walletId, playerId, initialBalance: Money.from({ amount: '100.00', currency: 'BRL' }), at });
     const session: FinancialSession = {
+      findReference: async (provider, external) => { actions.push(`reference:${provider}:${external}`); return reference; },
+      hasCompletedReversal: async id => { actions.push(`reversed:${id}`); return reversed; },
       lockWallet: async () => { actions.push('lock'); return wallet; },
       saveWallet: async () => { actions.push('save'); }, insertWallet: async () => {}, insertWager: async () => {},
       insertLedger: async () => { actions.push('ledger'); }, enqueue: async event => { actions.push(event.eventType); },
@@ -60,4 +62,17 @@ test('erro com code não textual mantém a causa original sem retry', async () =
   let received: unknown;
   try { await service.execute(payload, context); } catch (error) { received = error; }
   expect(received).toBe(original); expect(waits).toHaveLength(0);
+});
+
+test.each([false, true])('resolução fornece referência e reversão concluída=%s às regras', async reversed => {
+  const reference = WagerTransaction.create({ ...payload, kind: 'BET', id: 'original',
+    idempotencyKey: 'original-key', payloadHash: 'a'.repeat(64), money: Money.from(payload.money), createdAt: at });
+  reference.markProcessed(undefined, at);
+  const f = fixture(0, '40P01', reference, reversed);
+  const result = await f.service.execute({ ...payload, kind: 'REFUND', externalTransactionId: 'refund', referenceExternalTransactionId: 'external' }, context);
+  expect(result).toMatchObject(reversed ? { status: 'REJECTED', failureCode: 'REFERENCE_ALREADY_REVERSED' }
+    : { status: 'PROCESSED', balance: { amount: '125.00', currency: 'BRL' } });
+  expect(f.actions).toContain('reference:aurora:external');
+  expect(f.actions).toContain('reversed:original');
+  if (!reversed) expect(f.transactions[0]!.referenceTransactionId).toBe('original');
 });

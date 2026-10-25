@@ -2,7 +2,7 @@ import type { MikroORM, EntityManager } from '@mikro-orm/postgresql';
 import { LockMode } from '@mikro-orm/core';
 import type { UnitOfWork, FinancialSession } from '../shared/application/unit-of-work';
 import { DomainError } from '../shared/domain/domain-error';
-import { walletToRecord, walletFromRecord, wagerToRecord, ledgerToRecord } from './mappers';
+import { walletToRecord, walletFromRecord, wagerToRecord, wagerFromRecord, ledgerToRecord } from './mappers';
 import { OutboxRecord, WagerRecord, WalletRecord, type JsonValue } from './records';
 import { ApplicationError } from '../shared/application/application-error';
 import type { WagerTransaction } from '../wagering/domain/wager-transaction';
@@ -32,6 +32,10 @@ export class PostgresUnitOfWork implements UnitOfWork, IdempotentUnitOfWork {
           throw new Error('Resultado incompatível com a transação.');
         }
         wagerToRecord(transaction, record);
+        if (transaction.status === 'PENDING_REFERENCE') {
+          record.referenceDeadline = new Date(transaction.createdAt.getTime() + 86400000);
+          record.nextAttemptAt = new Date(transaction.createdAt.getTime() + 1000);
+        }
         record.result = structuredClone(result) as unknown as JsonValue;
         await em.flush();
         return processingResponse(result, false);
@@ -61,6 +65,13 @@ export class PostgresUnitOfWork implements UnitOfWork, IdempotentUnitOfWork {
   }
   private session(em: EntityManager): FinancialSession {
     return {
+      findReference: async (providerId, externalTransactionId) => {
+        const record = await em.findOne(WagerRecord, { providerId, externalTransactionId });
+        return record === null ? undefined : wagerFromRecord(record);
+      },
+      hasCompletedReversal: async referenceTransactionId => (await em.count(WagerRecord, {
+        referenceTransactionId, kind: { $in: ['REFUND', 'ROLLBACK'] }, status: 'PROCESSED',
+      })) > 0,
       lockWallet: async id => walletFromRecord(await this.lockWallet(em, id)),
       saveWallet: async wallet => {
         const record = await em.findOneOrFail(WalletRecord, { id: wallet.id });

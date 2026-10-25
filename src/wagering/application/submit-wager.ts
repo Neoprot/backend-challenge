@@ -36,7 +36,11 @@ export class SubmitWager {
   }
   private async process(tx: WagerTransaction, session: FinancialSession, context: SubmissionContext): Promise<ProcessingResult> {
     const wallet = await session.lockWallet(tx.walletId);
-    const decision = WagerRules.evaluate(tx, wallet);
+    const reference = tx.referenceExternalTransactionId === undefined ? undefined
+      : await session.findReference(tx.providerId, tx.referenceExternalTransactionId);
+    const alreadyReversed = tx.requiresReference() && reference !== undefined
+      ? await session.hasCompletedReversal(reference.id) : false;
+    const decision = WagerRules.evaluate(tx, wallet, reference, alreadyReversed);
     const occurredAt = this.clock.now();
     const eventContext = () => ({ eventId: this.ids.next(), correlationId: context.correlationId, occurredAt,
       ...(context.causationId === undefined ? {} : { causationId: context.causationId }) });
@@ -58,7 +62,7 @@ export class SubmitWager {
       await session.insertLedger(entry);
       await session.enqueue(WalletBalanceChanged.from(wallet, entry, eventContext()));
     }
-    tx.markProcessed(undefined, occurredAt);
+    tx.markProcessed(reference?.id, occurredAt);
     await session.enqueue(WagerTransactionProcessed.from(tx, eventContext()));
     return { transactionId: tx.id, status: tx.status, balance: wallet.balance.toJSON(), httpStatus: 200, terminal: true };
   }

@@ -4,6 +4,8 @@ import type { WagerTransaction } from '../../wagering/domain/wager-transaction';
 import type { IntegrationEvent } from '../../messaging/domain/integration-event';
 
 export interface FinancialSession {
+  findReference(providerId: string, externalTransactionId: string): Promise<WagerTransaction | undefined>;
+  hasCompletedReversal(referenceTransactionId: string): Promise<boolean>;
   lockWallet(walletId: string): Promise<Wallet>;
   saveWallet(wallet: Wallet): Promise<void>;
   insertWallet(wallet: Wallet): Promise<void>;
