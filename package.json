@@ -10,7 +10,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:unit": "bun test test/unit",
-    "test:it": "bun scripts/run-integration.ts"
+    "test:it": "bun scripts/run-integration.ts",
+    "migration:up": "bun scripts/migrate.ts up",
+    "migration:down": "bun scripts/migrate.ts down"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1156.0",

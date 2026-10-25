@@ -10,8 +10,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 2 — Money | COMPLETE |
 | 3 — Wallet e ledger | COMPLETE |
 | 4 — Transações e eventos | COMPLETE |
-| 5 — Schema e migrations | IN_PROGRESS |
-| 6–19 | PENDING |
+| 5 — Schema e migrations | COMPLETE |
+| 6 — Unidade de trabalho e abertura | IN_PROGRESS |
+| 7–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -78,3 +79,21 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Qualidade — PASS:** datas copiadas, dados de eventos clonados/congelados, payload somente DTO, domínio sem infraestrutura. Decisões de regras não modificam wallet; terminal não pode ser reavaliado. Sem achados pendentes.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 5, constraints e migrations reais.
+
+## Tarefa 5 — schema, migrations e mapeamento
+
+**Status:** COMPLETE. **Execution Mode:** Inline para migrations/CLI; subtarefa de mapeamento delegada a persistence_mapping.
+
+**Arquivos:** persistence/orm, records, schemas, mappers, duas migrations; scripts/migrate.ts; testes migrations/money-persistence/migration-cli; scripts no package.json e ignore de snapshot gerado.
+
+**TDD:** infraestrutura foi restabelecida antes do RED válido. 6 IT falharam por tabelas ausentes; após migrations, 6 passam. Mapeamento teve 5 falhas iniciais e detectou uso incorreto de toString com moeda (SQLSTATE 22P02), corrigido por MoneyProps.amount. CLI teve 2 RED por ausência do comando e depois 2 GREEN. Revisão automática interrompeu gravação por limite de uso; retomada confirmou arquivos antes de continuar, sem contornar a revisão.
+
+**Diagnóstico:** Bun 1.3.11 travou em matcher rejects.toThrow sobre erro PostgreSQL. Banco estava idle após responder, sem lock pendente. Testes passaram com catch e comparação explícita de SQLSTATE, fortalecendo a garantia de falha pela constraint esperada. Nenhuma constraint foi relaxada.
+
+**Validação independente:** 11 IT de migrations/mapeamento, 57 asserções; typecheck passa. Up/down/up exercitado no banco wagering_test. Subtarefa também executou todos unitários mais seus IT: 85 pass/0 fail (80 unitários + 5 IT).
+
+**Conformidade — PASS:** cinco tabelas, NUMERIC(30,2), checks contra negativo/NaN e equação, unicidades, FK de moeda/wallet no ledger, reversão única entre tipos, inbox composta, proteção UPDATE/DELETE/TRUNCATE com role restrita e triggers, migrations reversíveis. Money atravessa ORM como string, sem perda no valor máximo. Transações rejeitadas podem conservar moeda/player divergentes para auditoria; FKs compostas são aplicadas aos lançamentos efetivos, não impedem registrar rejeição.
+
+**Qualidade — PASS:** EntitySchema separado do domínio, mappers explícitos rehydrate, metadados de retry/lease preservados, contexto de teste isolado e SQLSTATE específico. Snapshot automático desativado; migrations explícitas são a fonte do schema. Sem achados pendentes.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 6.
