@@ -751,6 +751,8 @@ Teste de carga também conta como diferencial. Se fizer, exponha como `bun run t
 
 O enunciado acima foi preservado. A implementação usa Bun 1.3.11, TypeScript estrito, NestJS 12.2.0, MikroORM 7.2.5, PostgreSQL 17.6, SQS no LocalStack 4.11.1 e Keycloak 26.5.2. As decisões e a matriz de testes estão em [ARCHITECTURE.md](ARCHITECTURE.md).
 
+Para revisar a entrega, siga o [passo a passo de execução e testes](docs/TESTING.md), incluindo configuração do `.env`, demonstrações e todas as suítes automatizadas.
+
 ## Preparação local
 
 Instale Bun 1.3.11 e Docker com Compose. No Windows, utilize containers Linux no Docker Desktop. Copie `.env.example` para `.env`; o arquivo contém apenas credenciais descartáveis de demonstração e não deve ser reutilizado em produção. Os comandos externos abaixo usam RTK conforme a convenção deste repositório.
