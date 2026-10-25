@@ -1,6 +1,6 @@
 # Guia de execução e testes
 
-Abra um terminal na pasta do repositório, na branch `feat/distributed-wagering`. São necessários Bun 1.3.11 e Docker com Compose; no Windows, utilize containers Linux no Docker Desktop. Os comandos com Bun e Compose são os mesmos em Linux, macOS e Windows.
+Abra um terminal na pasta do repositório. São necessários Bun 1.3.11 e Docker com Compose; no Windows, utilize containers Linux no Docker Desktop. Os comandos com Bun e Compose são os mesmos em Linux, macOS e Windows.
 
 ## 1. Preparar o ambiente
 
@@ -91,11 +91,11 @@ bun run test:it
 bun run test:concurrency
 ```
 
-| Comando | O que verifica |
-| --- | --- |
-| `typecheck` | TypeScript estrito e compatibilidade dos tipos |
-| `test:unit` | Money, regras financeiras, estados, idempotência, políticas, retry, logs e guardas do seed/harness |
-| `test:it` | PostgreSQL/SQS/Keycloak reais, atomicidade, constraints, ledger imutável, precisão, HTTP, autenticação, referências, inbox/outbox, DLQ e quedas reais das dependências |
+| Comando            | O que verifica                                                                                                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `typecheck`        | TypeScript estrito e compatibilidade dos tipos                                                                                                                                                       |
+| `test:unit`        | Money, regras financeiras, estados, idempotência, políticas, retry, logs e guardas do seed/harness                                                                                                   |
+| `test:it`          | PostgreSQL/SQS/Keycloak reais, atomicidade, constraints, ledger imutável, precisão, HTTP, autenticação, referências, inbox/outbox, DLQ e quedas reais das dependências                               |
 | `test:concurrency` | Três processos independentes, 50 BET duplicadas, disputa de saldo, independência entre carteiras, reversão única, publishers concorrentes, reinício, morte após commit/envio e SIGTERM real em Linux |
 
 Todos os comandos devem terminar com código zero. A validação de 25/10/2026 registrou **262 unitários, 132 IT e 16 testes de concorrência/recuperação**, todos aprovados, além de typecheck e demonstrações reais. O preflight de três testes é repetido dentro dos IT e não está somado novamente.
