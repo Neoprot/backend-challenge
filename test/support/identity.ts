@@ -11,4 +11,3 @@ export async function accessToken(client: TestClient = 'aurora', extra: Record<s
   const result = await response.json() as { access_token: string };
   return result.access_token;
 }
-

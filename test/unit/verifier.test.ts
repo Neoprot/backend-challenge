@@ -70,4 +70,3 @@ test.each([
     await expect(verifier.verify('Bearer ' + await signed(standard()))).rejects.toBeInstanceOf(ServiceUnavailableException);
   } finally { await server.stop(true); }
 });
-

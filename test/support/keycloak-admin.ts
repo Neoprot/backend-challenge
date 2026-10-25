@@ -11,4 +11,3 @@ export async function keycloakAdmin() {
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
-
