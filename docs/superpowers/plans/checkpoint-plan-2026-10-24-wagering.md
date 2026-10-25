@@ -9,8 +9,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 1 — Bootstrap e ambiente real | COMPLETE |
 | 2 — Money | COMPLETE |
 | 3 — Wallet e ledger | COMPLETE |
-| 4 — Transações e eventos | IN_PROGRESS |
-| 5–19 | PENDING |
+| 4 — Transações e eventos | COMPLETE |
+| 5 — Schema e migrations | IN_PROGRESS |
+| 6–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -63,3 +64,17 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Qualidade — PASS:** campos nativos privados; Money imutável; snapshots de datas impedem alteração indireta; ledger congelado; wallet só muda depois que o lançamento foi validado. Nenhum achado pendente.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 4.
+
+## Tarefa 4 — transações, regras e eventos
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, agente transaction_domain, com revisão independente do controlador.
+
+**Arquivos:** wagering/domain (wager-transaction, wager-rules, failure-code), messaging/domain (integration-event, events), três testes unitários e fixture compartilhada.
+
+**TDD:** 27 falhas comportamentais iniciais. Revisão encontrou transição PROCESSED sem referência interna para REFUND/ROLLBACK/WIN referenciado: 3 regressões RED/GREEN. Autorrevisão encontrou evento de saldo aceitando ledger reidratado zero: 1 regressão RED/GREEN. Resultado: 34 testes focados/104 asserções; suíte unitária 78/236; typecheck passa. Controlador repetiu focados e typecheck.
+
+**Conformidade — PASS após correção:** estados terminais protegidos, vínculo resolvido obrigatório ao concluir operação referenciada, regras puras por tipo, moeda/wallet/rodada/provedor/valor, reversão única e código distinto para débito de reversão sem saldo. Eventos concretos com envelope estável e factories por estado.
+
+**Qualidade — PASS:** datas copiadas, dados de eventos clonados/congelados, payload somente DTO, domínio sem infraestrutura. Decisões de regras não modificam wallet; terminal não pode ser reavaliado. Sem achados pendentes.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 5, constraints e migrations reais.
