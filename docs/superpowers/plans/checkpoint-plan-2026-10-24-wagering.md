@@ -15,8 +15,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 7 — Canonicalização e idempotência | COMPLETE |
 | 8 — Processamento financeiro compartilhado | COMPLETE |
 | 9 — Referências e reversão única | PARTIAL — aceite multiprocessos na tarefa 18 |
-| 10 — Consultas e reconciliação | IN_PROGRESS |
-| 11–19 | PENDING |
+| 10 — Consultas e reconciliação | COMPLETE |
+| 11 — Contrato HTTP e composição | IN_PROGRESS |
+| 12–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -163,3 +164,19 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Risco/aceite pendente:** dois contextos no mesmo processo não substituem o harness multiprocessos. Repetir cenário na tarefa 18 antes de marcar COMPLETE e entregar. Worker de referências pertence à tarefa 16.
 
 **Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa 10, conforme sequência aprovada.
+
+## Tarefa 10 — consultas, cursor e reconciliação
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, queries_tdd, revisão independente do controlador.
+
+**Arquivos:** porta/adaptador WalletQueries, ReadWallet, ListLedger, ReconcileWallet, ledger-cursor, testes contracts/reconciliation.
+
+**TDD:** 30 RED comportamentais iniciais, GREEN ampliado para 33 testes focados/64 asserções. Revisão acrescentou ano zero aceito por Date mas recusado pelo PostgreSQL: RED/GREEN. Controlador confirmou 32 focados/63 asserções antes da regressão e os 25 unitários finais depois dela; typecheck passa. Implementador executou suíte afetada anterior à última regressão: 159 pass/469 asserções.
+
+**Conformidade — PASS:** contratos do README, Money string, wallet zero e valores grandes, 404 ausente, cursor opaco versionado com vínculo/UUID/data e limite 1–100/padrão 50. Keyset por data/id, precisão de seis casas do PostgreSQL preservada. Inserções novas não repetem páginas já lidas. Corrupção administrativa controlada é reportada com diferença signed e restaurada no finally, sem correção automática pela aplicação.
+
+**Ajuste explícito:** reconciliação usa um SELECT agregado único, cujo snapshot MVCC inclui saldo e ledger de forma consistente; dispensa múltiplas leituras em transação REPEATABLE READ. IT com barreira após flush de saldo e antes de ledger demonstra snapshot antigo consistente antes do commit e novo consistente depois.
+
+**Qualidade — PASS após refatoração:** ordenação qualificada pela coluna timestamp, evitando ordenar alias textual calculado e permitindo usar índice existente. Portas separadas do ORM, parâmetros SQL vinculados, cursor canônico e sem perda de microssegundos. Number é usado apenas para contagem de lançamentos, validada como inteiro seguro. Sem achados pendentes.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 11.
