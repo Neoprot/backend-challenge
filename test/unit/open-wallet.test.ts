@@ -12,6 +12,7 @@ function fixture() {
   const wallets: Wallet[] = [], wagers: WagerTransaction[] = [], entries: WalletLedgerEntry[] = [], events: IntegrationEvent<unknown>[] = [];
   let sequence = 0, runs = 0;
   const session: FinancialSession = {
+    lockWallet: async () => { throw new Error('Não utilizado na abertura.'); }, saveWallet: async () => {},
     insertWallet: async value => { wallets.push(value); }, insertWager: async value => { wagers.push(value); },
     insertLedger: async value => { entries.push(value); }, enqueue: async value => { events.push(value); },
   };

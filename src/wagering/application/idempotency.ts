@@ -4,7 +4,7 @@ import type { ProcessingResult, ProcessingResponse } from './processing-result';
 import { DomainError } from '../../shared/domain/domain-error';
 
 export interface IdempotentUnitOfWork {
-  runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>): Promise<ProcessingResponse>;
+  runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: { lockWallet: boolean }): Promise<ProcessingResponse>;
 }
 export class IdempotencyConflict extends DomainError {
   readonly httpStatus = 409;

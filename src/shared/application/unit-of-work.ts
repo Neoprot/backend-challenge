@@ -4,6 +4,8 @@ import type { WagerTransaction } from '../../wagering/domain/wager-transaction';
 import type { IntegrationEvent } from '../../messaging/domain/integration-event';
 
 export interface FinancialSession {
+  lockWallet(walletId: string): Promise<Wallet>;
+  saveWallet(wallet: Wallet): Promise<void>;
   insertWallet(wallet: Wallet): Promise<void>;
   insertWager(transaction: WagerTransaction): Promise<void>;
   insertLedger(entry: WalletLedgerEntry): Promise<void>;

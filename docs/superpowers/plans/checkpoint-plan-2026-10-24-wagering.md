@@ -13,8 +13,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 5 — Schema e migrations | COMPLETE |
 | 6 — Unidade de trabalho e abertura | COMPLETE |
 | 7 — Canonicalização e idempotência | COMPLETE |
-| 8 — Processamento financeiro compartilhado | IN_PROGRESS |
-| 9–19 | PENDING |
+| 8 — Processamento financeiro compartilhado | COMPLETE |
+| 9 — Referências e reversão única | IN_PROGRESS |
+| 10–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -129,3 +130,19 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Ambiente:** validação independente inicialmente encontrou ECONNREFUSED. Docker Desktop falhou por sockets temporários antigos em AppData/Local/Docker/run. Diretório preservado como run.stale-20261025, novo run criado; volumes mantidos. Docker voltou a responder e IT repetido com sucesso. Não foi tratado como RED de negócio.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 8.
+
+## Tarefa 8 — processamento financeiro compartilhado
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, submit_financial, revisão independente do controlador.
+
+**Arquivos:** SubmitWager, ApplicationError, portas/adaptador transacional, testes unitários submit-wager, IT wager/atomicity e dublês afetados.
+
+**TDD:** 5 RED IT e 8 RED unitários; GREEN ampliado com timeout real, disputa de saldo, rollback e overflow. Revisão encontrou code não textual mascarado pelo classificador de retry; regressão RED/GREEN corrigida. Controlador repetiu 28 testes focados/161 asserções e typecheck com sucesso. Implementador executou suíte afetada de 145 testes/531 asserções.
+
+**Conformidade — PASS:** BET/WIN/LOSS e rejeições persistem snapshot e eventos na mesma transação. LOSS não gera ledger/version; replay preserva saldo original. Lock por wallet sem lock global; retry de transação inteira limitado a três tentativas, reconstruindo domínio e preservando identidade/aceitação. Lock_timeout real retorna 503 sem reserva/efeitos; wallet inexistente 404. Moeda/player incompatíveis são rejeitados sem movimento; overflow desfaz tudo e preserva erro.
+
+**Ajuste explícito:** o adaptador bloqueia a wallet antes do INSERT da reserva financeira. Inserir antes adquire KEY SHARE pela FK e pode gerar deadlock na promoção para FOR UPDATE entre operações distintas. Opção transacional preserva os testes diretos de unicidade da tarefa 7. IT coordenado aguarda dois locks reais antes de liberar a wallet; duas BET de 80 sobre 100 resultam em uma conclusão, uma rejeição, saldo 20 e versão 2.
+
+**Qualidade — PASS:** domínio sem ORM, callback compartilhável por HTTP/SQS, erros permanentes preservados, helper de falha limitado aos métodos realmente suportados. Testes comprovam rollback de débito, crédito e rejeição depois dos flushes. Sem achados pendentes.
+
+**Implementer Outcome:** DONE. **Limite desta etapa:** referências ainda aguardam; resolução pertence à tarefa 9. **Próxima ação:** tarefa 9.
