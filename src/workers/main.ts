@@ -6,12 +6,13 @@ import { readConfiguration } from '../bootstrap/config';
 import { ORM, SQS } from '../bootstrap/tokens';
 import { SubmitWager } from '../wagering/application/submit-wager';
 import { createWorkerRuntime, readWorkerConfiguration } from './worker-runtime';
+import { ApplicationObservation } from '../observability/observation';
 
 /** Entry point explícito: HTTP autenticado + consumer de comandos + publisher de eventos. */
 export async function bootstrapWorkers() {
   const configuration = readConfiguration(process.env), workers = readWorkerConfiguration(process.env);
   const app = await createApplication(configuration);
-  const runtime = createWorkerRuntime(workers, app.get<MikroORM>(ORM), app.get<SQSClient>(SQS), app.get(SubmitWager));
+  const runtime = createWorkerRuntime(workers, app.get<MikroORM>(ORM), app.get<SQSClient>(SQS), app.get(SubmitWager), app.get(ApplicationObservation));
   try { await app.listen(configuration.port, '0.0.0.0'); runtime.start(); }
   catch (error) { await runtime.stop(workers.shutdownGraceMs); await app.close(); throw error; }
   let stopping = false;

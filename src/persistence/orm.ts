@@ -7,5 +7,6 @@ import { RecoveringPostgreSqlDriver } from './recovering-postgres-driver';
 
 export function createOrm(clientUrl: string) {
   return MikroORM.init({ driver: RecoveringPostgreSqlDriver, clientUrl, entities: persistenceSchemas,
+    driverOptions: { connectionTimeoutMillis: 1000 }, logger: () => {},
     extensions: [Migrator], migrations: { snapshot: false, migrationsList: [Migration202610240001, Migration202610240002] } });
 }

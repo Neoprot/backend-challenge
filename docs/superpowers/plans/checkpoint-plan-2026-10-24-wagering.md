@@ -22,7 +22,7 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 14 — Outbox recuperável | PARTIAL — aceite de processos na tarefa 18 |
 | 15 — Retry, DLQ e ciclo de vida | PARTIAL — aceite de sinais SO na tarefa 18 |
 | 16 — Reprocessamento de referências | COMPLETE |
-| 17 — Logs, métricas e saúde | IN_PROGRESS |
+| 17 — Logs, métricas e saúde | COMPLETE |
 | 18–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
@@ -294,3 +294,21 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Qualidade — PASS:** porta na aplicação, processamento paralelo limitado e allSettled para drain completo. Testes comprovam retomada, owner obsoleto, liberação da seleção antes da espera pela carteira, rollback financeiro e preservação integral da inbox aceita. A fixture FAILED usa o caso de uso real em vez de alterar artificialmente um estado terminal. Runtime inclui o terceiro worker. Nenhum achado pendente.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 17.
+
+## Tarefa 17 — logs, métricas e saúde
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, observability_tdd; revisão de conformidade pelo controlador e de qualidade por observability_quality_review.
+
+**Arquivos:** observability, porta de observação na aplicação, composição HTTP, instrumentação dos casos de uso e dos três workers, sondas limitadas e testes de logging/observabilidade.
+
+**TDD:** RED comportamental para endpoint de métricas inexistente, observação de commit/replay ausente, contexto do consumidor ausente e exclusão indevida de LOSS. A falha inicial de importação não foi contada como RED. A primeira correção de contagem dupla de latência antecedeu sua regressão específica; essa limitação de sequência está registrada, sem simular um RED posterior. Os dois achados P2 da revisão tiveram RED antes da correção: amostra artificial de duração em FAILED e perda de contexto nas falhas individuais dos workers. A segunda regressão também exigiu recuperar a correlação e os IDs originais da referência.
+
+**Comportamento:** logs JSON usam lista positiva de campos e omitem tokens, segredos, corpos financeiros e mensagens arbitrárias de erro. Contexto por execução com AsyncLocalStorage; enriquecimento local por porta opcional, snapshots imutáveis e isolamento entre execuções. Falhas são observadas dentro do escopo de cada item, preservando o erro original. Não há marcador global por objeto Error; duas ocorrências do mesmo erro produzem dois diagnósticos.
+
+**Métricas e saúde:** métricas textuais exigem administrador e têm labels enumeradas, sem IDs. Contadores financeiros só avançam após commit; replay conta como duplicata. Duração ausente não cria amostra e FAILED mede duração real. Contadores são locais ao processo; lag consulta a outbox e preserva a última leitura válida em caso de falha. Health permanece público: readiness verifica PostgreSQL/SQS com prazo e cancelamento, enquanto liveness independe deles. Cancelamento SQL pela API pública foi comprovado pela ausência da consulta em pg_stat_activity; o cancelamento do servidor é assíncrono. Kysely pode emitir diagnóstico próprio de cancelamento, sem SQL, credenciais ou payload.
+
+**Evidência do implementador:** 240 unitários/690 asserções, três IT focados/46 asserções e 24 IT afetados/199 asserções passaram após os ajustes, além de typecheck e diff check. Antes deles, 69 IT afetados/516 asserções e a suíte completa de observabilidade com outages reais separados também passaram. Recursos exclusivos de teste foram restaurados.
+
+**Validação final do controlador:** 240 unitários/690 asserções, oito IT de observabilidade/95 asserções e typecheck passaram. Os IT repetiram outages reais separados de SQS e PostgreSQL, com restauração dos serviços. Revisão de conformidade — PASS; revisão independente de qualidade — PASS após o fechamento dos dois P2, sem novos achados. O revisor também repetiu 240 unitários e typecheck.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 18.

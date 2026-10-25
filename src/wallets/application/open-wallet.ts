@@ -7,14 +7,17 @@ import { Wallet } from '../domain/wallet';
 import { WalletLedgerEntry } from '../domain/ledger-entry';
 import { WagerTransaction } from '../../wagering/domain/wager-transaction';
 import { WagerTransactionProcessed, WalletBalanceChanged } from '../../messaging/domain/events';
+import { noObservation, observe, type Observation } from '../../shared/application/observation';
 
 export interface OpenWalletCommand { playerId: string; initialBalance: Money; correlationId: string; }
 export class OpenWallet {
-  constructor(private readonly uow: UnitOfWork, private readonly clock: Clock, private readonly ids: Identifiers) {}
+  constructor(private readonly uow: UnitOfWork, private readonly clock: Clock, private readonly ids: Identifiers,
+    private readonly observation: Observation = noObservation) {}
   async execute(command: OpenWalletCommand): Promise<Wallet> {
     const at = this.clock.now();
     const wallet = Wallet.open({ id: this.ids.next(), playerId: command.playerId, initialBalance: command.initialBalance, at });
-    return this.uow.run(async session => {
+    const started = performance.now(); let transactionId: string | undefined;
+    const result = await this.uow.run(async session => {
       await session.insertWallet(wallet);
       if (wallet.balance.isZero()) return wallet;
       const transaction = WagerTransaction.create({
@@ -25,6 +28,7 @@ export class OpenWallet {
         kind: 'OPENING', money: wallet.balance, createdAt: at,
       });
       transaction.markProcessed(undefined, at);
+      transactionId = transaction.id;
       const entry = WalletLedgerEntry.create({
         id: this.ids.next(), walletId: wallet.id, transactionId: transaction.id, direction: 'CREDIT',
         money: wallet.balance, balanceBefore: Money.zero(wallet.currency), balanceAfter: wallet.balance, createdAt: at,
@@ -39,5 +43,9 @@ export class OpenWallet {
       }));
       return wallet;
     });
+    if (transactionId) observe(this.observation, 'transaction_committed', { correlationId: command.correlationId,
+      transactionId, walletId: wallet.id, providerId: '__internal__', kind: 'OPENING', status: 'PROCESSED', component: 'opening',
+      durationSeconds: (performance.now() - started) / 1000 });
+    return result;
   }
 }

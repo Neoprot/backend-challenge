@@ -14,7 +14,7 @@ export class Readiness {
     });
     try {
       const results = await Promise.race([Promise.allSettled([
-        this.orm.em.fork().execute('select 1'),
+        this.orm.em.fork().execute('select 1', [], { signal: controller.signal, inflightQueryAbortStrategy: 'cancel query' }),
         this.sqs.send(new ListQueuesCommand({ MaxResults: 1 }), { abortSignal: controller.signal }),
       ]), timeout]);
       if (results.some(result => result.status === 'rejected')) throw new Error('dependency unavailable');

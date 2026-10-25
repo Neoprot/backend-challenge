@@ -7,6 +7,9 @@ import { createOrm } from '../persistence/orm';
 import { AppModule, type ApplicationOptions } from './app.module';
 import { ErrorFilter, type HttpRequest, type HttpResponse } from '../http/error.filter';
 import { correlationId } from '../http/contracts';
+import { ApplicationObservation } from '../observability/observation';
+import { runWithContext } from '../observability/context';
+import { observe } from '../shared/application/observation';
 
 export async function createApplication(configuration: Configuration, options: ApplicationOptions = {}) {
   const orm = await createOrm(configuration.databaseUrl);
@@ -18,7 +21,14 @@ export async function createApplication(configuration: Configuration, options: A
     app.use((request: HttpRequest, response: HttpResponse, next: () => void) => {
       request.correlationId = correlationId(request.headers['x-correlation-id']);
       response.setHeader('X-Correlation-Id', request.correlationId);
-      next();
+      runWithContext({ correlationId: request.correlationId }, () => {
+        const started = performance.now();
+        const completed = response as HttpResponse & { statusCode: number; once(event: 'finish', listener: () => void): void };
+        completed.once('finish', () => observe(app.get(ApplicationObservation), 'http_completed', {
+          component: 'http', correlationId: request.correlationId, httpStatus: completed.statusCode, durationSeconds: (performance.now() - started) / 1000,
+        }));
+        next();
+      });
     });
     app.useBodyParser('json', { limit: '64kb' });
     app.useGlobalFilters(new ErrorFilter());

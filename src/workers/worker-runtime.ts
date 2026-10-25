@@ -8,6 +8,8 @@ import { PostgresOutboxStore } from '../persistence/outbox-store';
 import { UuidIdentifiers } from '../shared/domain/identifiers';
 import { ReferenceWorker } from './reference-worker';
 import { PostgresReferenceStore } from '../persistence/reference-store';
+import { noObservation, type Observation } from '../shared/application/observation';
+import { boundedRead } from '../observability/read-probe';
 export interface WorkerConfiguration {
   requestQueueUrl: string; requestDlqUrl: string; eventQueueUrl: string; consumerName: string;
   visibilityTimeoutSeconds: number; heartbeatMs: number; shutdownGraceMs: number;
@@ -37,14 +39,15 @@ export function readWorkerConfiguration(environment: Record<string, string | und
   return { requestQueueUrl, requestDlqUrl, eventQueueUrl, consumerName, visibilityTimeoutSeconds, heartbeatMs,
     shutdownGraceMs: integer('WORKER_SHUTDOWN_GRACE_MS', 25000, 100, 300000) };
 }
-export function createWorkerRuntime(configuration: WorkerConfiguration, orm: MikroORM, sqs: SQSClient, submit: SubmitWager): WorkerLifecycle {
+export function createWorkerRuntime(configuration: WorkerConfiguration, orm: MikroORM, sqs: SQSClient, submit: SubmitWager, observation: Observation = noObservation): WorkerLifecycle {
   const consumer = new SqsConsumer(sqs, configuration.requestQueueUrl, submit, configuration.consumerName, {
-    dlqUrl: configuration.requestDlqUrl, visibilityTimeoutSeconds: configuration.visibilityTimeoutSeconds, heartbeatMs: configuration.heartbeatMs,
+    dlqUrl: configuration.requestDlqUrl, visibilityTimeoutSeconds: configuration.visibilityTimeoutSeconds, heartbeatMs: configuration.heartbeatMs, observation,
     databaseAvailable: async () => {
-      try { await orm.em.fork().execute('select 1'); return true; } catch { return false; }
+      try { await boundedRead(orm, 'select 1'); return true; } catch { return false; }
     },
   });
-  const publisher = new OutboxPublisher(new PostgresOutboxStore(orm), sqs, configuration.eventQueueUrl, new UuidIdentifiers());
-  const references = new ReferenceWorker(new PostgresReferenceStore(orm), submit, new UuidIdentifiers());
-  return new WorkerLifecycle([consumer, publisher, references], { onError: () => { console.error('Worker indisponível; nova tentativa será agendada.'); } });
+  const publisher = new OutboxPublisher(new PostgresOutboxStore(orm), sqs, configuration.eventQueueUrl, new UuidIdentifiers(), undefined, { observation });
+  const references = new ReferenceWorker(new PostgresReferenceStore(orm), submit, new UuidIdentifiers(), undefined, { observation });
+  // Cada worker observa falhas dentro do seu próprio escopo, com IDs conhecidos.
+  return new WorkerLifecycle([consumer, publisher, references]);
 }

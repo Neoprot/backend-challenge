@@ -21,12 +21,16 @@ import type { WalletQueries } from '../wallets/application/wallet-queries';
 import { WalletsController } from '../http/wallets.controller';
 import { WageringController } from '../http/wagering.controller';
 import { HealthController, Readiness } from '../http/health.controller';
+import { ApplicationObservation } from '../observability/observation';
+import { StructuredLogger, type LogSink } from '../observability/logger';
+import { MetricsController } from '../observability/metrics.controller';
 
-export interface ApplicationOptions { lockTimeoutMs?: number; clock?: Clock; }
+export interface ApplicationOptions { lockTimeoutMs?: number; clock?: Clock; logSink?: LogSink; }
 @Module({})
 export class AppModule {
   static register(configuration: Configuration, orm: MikroORM, sqs: SQSClient, options: ApplicationOptions): DynamicModule {
-    return { module: AppModule, controllers: [WalletsController, WageringController, HealthController], providers: [
+    return { module: AppModule, controllers: [WalletsController, WageringController, HealthController, MetricsController], providers: [
+      { provide: ApplicationObservation, useFactory: () => new ApplicationObservation(new StructuredLogger(options.logSink)) },
       { provide: APP_GUARD, useClass: AuthGuard },
       { provide: KeycloakVerifier, inject: [CLOCK], useFactory: (clock: Clock) => new KeycloakVerifier(configuration, clock) },
       { provide: CONFIGURATION, useValue: configuration }, { provide: ORM, useValue: orm }, { provide: SQS, useValue: sqs },
@@ -34,13 +38,13 @@ export class AppModule {
       { provide: UNIT_OF_WORK, inject: [ORM], useFactory: (db: MikroORM) => new PostgresUnitOfWork(db, options) },
       { provide: WALLET_QUERIES, inject: [ORM], useFactory: (db: MikroORM) => new PostgresWalletQueries(db) },
       { provide: TRANSACTION_QUERIES, inject: [ORM], useFactory: (db: MikroORM) => new PostgresTransactionQueries(db) },
-      { provide: OpenWallet, inject: [UNIT_OF_WORK, CLOCK, IDENTIFIERS],
-        useFactory: (uow: PostgresUnitOfWork, clock: Clock, ids: Identifiers) => new OpenWallet(uow, clock, ids) },
-      { provide: SubmitWager, inject: [UNIT_OF_WORK, CLOCK, IDENTIFIERS],
-        useFactory: (uow: PostgresUnitOfWork, clock: Clock, ids: Identifiers) => new SubmitWager(uow, clock, ids) },
+      { provide: OpenWallet, inject: [UNIT_OF_WORK, CLOCK, IDENTIFIERS, ApplicationObservation],
+        useFactory: (uow: PostgresUnitOfWork, clock: Clock, ids: Identifiers, observation: ApplicationObservation) => new OpenWallet(uow, clock, ids, observation) },
+      { provide: SubmitWager, inject: [UNIT_OF_WORK, CLOCK, IDENTIFIERS, ApplicationObservation],
+        useFactory: (uow: PostgresUnitOfWork, clock: Clock, ids: Identifiers, observation: ApplicationObservation) => new SubmitWager(uow, clock, ids, undefined, observation) },
       { provide: ReadWallet, inject: [WALLET_QUERIES], useFactory: (queries: WalletQueries) => new ReadWallet(queries) },
       { provide: ListLedger, inject: [WALLET_QUERIES], useFactory: (queries: WalletQueries) => new ListLedger(queries) },
-      { provide: ReconcileWallet, inject: [WALLET_QUERIES], useFactory: (queries: WalletQueries) => new ReconcileWallet(queries) },
+      { provide: ReconcileWallet, inject: [WALLET_QUERIES, ApplicationObservation], useFactory: (queries: WalletQueries, observation: ApplicationObservation) => new ReconcileWallet(queries, observation) },
       { provide: ReadTransaction, inject: [TRANSACTION_QUERIES], useFactory: (queries: TransactionQueries) => new ReadTransaction(queries) },
       { provide: Readiness, inject: [ORM, SQS], useFactory: (db: MikroORM, client: SQSClient) => new Readiness(db, client) },
       { provide: 'resource-cleanup', useValue: { onApplicationShutdown: async () => { sqs.destroy(); await orm.close(true); } } },

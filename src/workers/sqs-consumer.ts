@@ -6,6 +6,8 @@ import type { WagerPayload } from '../wagering/application/canonical-payload';
 import type { SubmitWager } from '../wagering/application/submit-wager';
 import type { ProcessingResponse } from '../wagering/application/processing-result';
 import { classifyFailure, retryDelaySeconds, settleWithin } from './worker-lifecycle';
+import { noObservation, observe, type Observation } from '../shared/application/observation';
+import { runWithContext } from '../observability/context';
 
 interface Envelope { messageId: string; type: 'WagerTransactionRequested'; occurredAt: string; data: WagerPayload & { idempotencyKey: string }; }
 export interface ConsumerOptions {
@@ -13,8 +15,9 @@ export interface ConsumerOptions {
   databaseAvailable?: () => Promise<boolean>; afterCommitBeforeAck?: (message: Message) => Promise<void>;
   afterDlqSendBeforeAck?: (message: Message) => Promise<void>;
   sqsRequestTimeoutMs?: number; receiveTimeoutMs?: number;
+  observation?: Observation;
 }
-interface ActiveMessage { receipt: string; abandoned: boolean; heartbeatStopped?: boolean; timer?: ReturnType<typeof setTimeout>; renewal?: Promise<void>; }
+interface ActiveMessage { receipt: string; abandoned: boolean; transactionId?: string; heartbeatStopped?: boolean; timer?: ReturnType<typeof setTimeout>; renewal?: Promise<void>; }
 function invalid(): never { throw new ApplicationError('INVALID_ENVELOPE', 'Envelope de mensagem inválido.', 400); }
 function object(value: unknown, keys: readonly string[]): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !keys.includes(key))) invalid();
@@ -100,14 +103,17 @@ export class SqsConsumer {
         VisibilityTimeout: this.options.visibilityTimeoutSeconds ?? 30, MaxNumberOfMessages: 1,
         MessageSystemAttributeNames: ['ApproximateReceiveCount', 'MessageGroupId'] }), { abortSignal: signal }),
         this.options.receiveTimeoutMs ?? ((this.options.waitTimeSeconds ?? 20) + 5) * 1000, abort);
-    } catch (error) { if (this.stopped && abort.signal.aborted) return 0; throw error; }
+    } catch (error) {
+      if (this.stopped && abort.signal.aborted) return 0;
+      observe(this.options.observation ?? noObservation, 'worker_failed', { component: 'consumer' }); throw error;
+    }
     finally { this.receives.delete(abort); }
     for (const message of response.Messages ?? []) {
       if (!message.ReceiptHandle) invalid();
       if (this.stopped) { await this.visibility(message.ReceiptHandle, 0); continue; }
       const state: ActiveMessage = { receipt: message.ReceiptHandle, abandoned: false };
       this.active.add(state); this.heartbeat(state);
-      try { await this.process(message, state); }
+      try { await runWithContext({ correlationId: message.MessageId ?? crypto.randomUUID(), ...(message.MessageId ? { messageId: message.MessageId } : {}) }, () => this.process(message, state)); }
       finally { await this.stopHeartbeat(state); this.active.delete(state); }
     }
     return response.Messages?.length ?? 0;
@@ -119,15 +125,31 @@ export class SqsConsumer {
       let input: unknown; try { input = JSON.parse(message.Body); } catch { invalid(); }
       envelope = wagerEnvelope(input);
     } catch (error) {
-      if (!this.options.dlqUrl || message.Body === undefined || !message.MessageId) throw error;
-      // SQS confirma aceitação antes do delete. Crash entre ambos pode duplicar a DLQ;
-      // identidade da origem continua estável mesmo após a janela de dedupe FIFO.
+      return this.processMalformed(message, state, error);
+    }
+    return runWithContext({ correlationId: envelope.messageId, messageId: envelope.messageId, walletId: envelope.data.walletId, providerId: envelope.data.providerId },
+      async () => {
+        try { await this.processEnvelope(envelope, message, state); }
+        catch (error) {
+          observe(this.options.observation ?? noObservation, 'worker_failed', { component: 'consumer', transactionId: state.transactionId });
+          throw error;
+        }
+      });
+  }
+  private async processMalformed(message: Message, state: ActiveMessage, originalError: unknown): Promise<void> {
+    try {
+      if (!this.options.dlqUrl || message.Body === undefined || !message.MessageId) throw originalError;
+      // SQS confirma aceite antes do delete; um crash pode duplicar a DLQ, preservando a identidade.
       try { await this.sendDlq(message, 'malformed'); }
       catch (failure) { await this.defer(message, state); throw failure; }
       await this.options.afterDlqSendBeforeAck?.(message);
       if (!state.abandoned) await this.ack(state.receipt);
-      return;
+    } catch (error) {
+      observe(this.options.observation ?? noObservation, 'worker_failed', { component: 'consumer' }); throw error;
     }
+  }
+  private async processEnvelope(envelope: Envelope, message: Message, state: ActiveMessage): Promise<void> {
+    const started = performance.now();
     const { idempotencyKey, ...payload } = envelope.data;
     const context = { idempotencyKey, correlationId: envelope.messageId, causationId: envelope.messageId,
       inbox: { consumerName: this.consumerName, messageId: envelope.messageId, payloadHash: envelopeHash(envelope), receivedAt: new Date() } };
@@ -144,6 +166,7 @@ export class SqsConsumer {
         throw error;
       }
     }
+    state.transactionId = result.transactionId;
     await this.options.afterCommitBeforeAck?.(message);
     if (result.status === 'FAILED') {
       try { await this.sendDlq(message, 'permanent'); }
@@ -151,6 +174,8 @@ export class SqsConsumer {
       await this.options.afterDlqSendBeforeAck?.(message);
     }
     if (!state.abandoned) await this.ack(state.receipt);
+    observe(this.options.observation ?? noObservation, 'message_completed', { component: 'consumer', transactionId: result.transactionId,
+      status: result.status, durationSeconds: (performance.now() - started) / 1000 });
   }
   private async sendDlq(message: Message, failureClass: 'malformed' | 'permanent'): Promise<void> {
     if (!this.options.dlqUrl || message.Body === undefined || !message.MessageId) {
@@ -161,6 +186,7 @@ export class SqsConsumer {
       MessageAttributes: { sourceMessageId: { DataType: 'String', StringValue: message.MessageId },
         sourceQueueUrl: { DataType: 'String', StringValue: this.queueUrl }, failureClass: { DataType: 'String', StringValue: failureClass } } }), { abortSignal: signal }));
     if (!accepted.MessageId) throw new ApplicationError('DLQ_UNCONFIRMED', 'DLQ não confirmou aceitação; mensagem preservada na origem.', 503);
+    observe(this.options.observation ?? noObservation, 'dlq_accepted', { component: 'consumer', failureClass });
   }
   private ack(receipt: string): Promise<unknown> {
     return this.request(signal => this.sqs.send(new DeleteMessageCommand({ QueueUrl: this.queueUrl, ReceiptHandle: receipt }), { abortSignal: signal }));
@@ -174,6 +200,7 @@ export class SqsConsumer {
     state.heartbeatStopped = true; clearTimeout(state.timer); await state.renewal;
   }
   private async defer(message: Message, state: ActiveMessage): Promise<void> {
+    observe(this.options.observation ?? noObservation, 'retry', { component: 'consumer' });
     await this.stopHeartbeat(state);
     if (!state.abandoned) {
       try { await this.visibility(state.receipt, retryDelaySeconds(Number(message.Attributes?.ApproximateReceiveCount ?? 1))); }
