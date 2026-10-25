@@ -3,6 +3,7 @@ export interface Configuration {
   readonly sqsEndpoint: string;
   readonly issuer: string;
   readonly audience: string;
+  readonly jwksUri?: string;
   readonly port: number;
   readonly region: string;
 }
@@ -27,10 +28,11 @@ export function readConfiguration(environment: Record<string, string | undefined
   const sqsEndpoint = url('SQS_ENDPOINT', ['http:', 'https:']);
   const issuer = url('OIDC_ISSUER', ['http:', 'https:']);
   const audience = required('OIDC_AUDIENCE');
+  const jwksUri = environment.OIDC_JWKS_URI === undefined ? undefined : url('OIDC_JWKS_URI', ['http:', 'https:']);
   const rawPort = environment.PORT ?? '3000';
   const port = Number(rawPort);
   if (!/^\d+$/.test(rawPort) || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error('PORT inválida');
   }
-  return Object.freeze({ databaseUrl, sqsEndpoint, issuer, audience, port, region: environment.AWS_REGION ?? 'us-east-1' });
+  return Object.freeze({ databaseUrl, sqsEndpoint, issuer, audience, ...(jwksUri === undefined ? {} : { jwksUri }), port, region: environment.AWS_REGION ?? 'us-east-1' });
 }

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import type { ArgumentsHost } from '@nestjs/common';
 import { ErrorFilter } from '../../src/http/error.filter';
-
+import { UnauthorizedException, ForbiddenException } from '@nestjs/common';
 function responseFor(error: unknown) {
   let status = 0;
   let body: unknown;
@@ -29,5 +29,10 @@ test('falha desconhecida permanece 500 sem expor detalhes internos', () => {
   const result = responseFor(Object.assign(new Error('detalhe privado'), { code: 42 }));
   expect(result.status).toBe(500);
   expect(result.body).toMatchObject({ code: 'INTERNAL_ERROR', correlationId: 'query-test' });
+  expect(JSON.stringify(result.body)).not.toContain('privado');
+});
+test.each([new UnauthorizedException('privado'), new ForbiddenException('privado')])('filtro preserva 401/403 sanitizados', error => {
+  const result = responseFor(error);
+  expect(result.status).toBe(error.getStatus());
   expect(JSON.stringify(result.body)).not.toContain('privado');
 });

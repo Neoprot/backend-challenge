@@ -22,3 +22,7 @@ test('configuração rejeita portas inválidas', () => {
 test('configuração aplica padrões explícitos', () => {
   expect(readConfiguration(valid)).toMatchObject({ port: 3000, region: 'us-east-1', audience: 'wagering-api' });
 });
+test('configuração permite JWKS explicitamente confiável e valida protocolo', () => {
+  expect(readConfiguration({ ...valid, OIDC_JWKS_URI: 'http://keycloak:8080/realms/wagering/protocol/openid-connect/certs' })).toHaveProperty('jwksUri', 'http://keycloak:8080/realms/wagering/protocol/openid-connect/certs');
+  expect(() => readConfiguration({ ...valid, OIDC_JWKS_URI: 'file:///keys' })).toThrow('OIDC_JWKS_URI');
+});

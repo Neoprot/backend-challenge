@@ -1,3 +1,4 @@
+import { RequiredAccess } from '../identity/public';
 import { Body, Controller, Get, HttpCode, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { OpenWallet } from '../wallets/application/open-wallet';
 import { ReadWallet } from '../wallets/application/read-wallet';
@@ -6,6 +7,7 @@ import { ReconcileWallet } from '../wallets/application/reconcile-wallet';
 import { ledgerQuery, openWalletContract, uuidContract } from './contracts';
 import type { HttpRequest } from './error.filter';
 
+@RequiredAccess('admin')
 @Controller('wallets')
 export class WalletsController {
   constructor(@Inject(OpenWallet) private readonly open: OpenWallet, @Inject(ReadWallet) private readonly read: ReadWallet,

@@ -1,3 +1,6 @@
+import { APP_GUARD } from '@nestjs/core';
+import { AuthGuard } from '../identity/auth.guard';
+import { KeycloakVerifier } from '../identity/keycloak-verifier';
 import { Module, type DynamicModule } from '@nestjs/common';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import type { SQSClient } from '@aws-sdk/client-sqs';
@@ -19,12 +22,15 @@ import { WalletsController } from '../http/wallets.controller';
 import { WageringController } from '../http/wagering.controller';
 import { HealthController, Readiness } from '../http/health.controller';
 
+export interface ApplicationOptions { lockTimeoutMs?: number; clock?: Clock; }
 @Module({})
 export class AppModule {
-  static register(configuration: Configuration, orm: MikroORM, sqs: SQSClient, options: { lockTimeoutMs?: number }): DynamicModule {
+  static register(configuration: Configuration, orm: MikroORM, sqs: SQSClient, options: ApplicationOptions): DynamicModule {
     return { module: AppModule, controllers: [WalletsController, WageringController, HealthController], providers: [
+      { provide: APP_GUARD, useClass: AuthGuard },
+      { provide: KeycloakVerifier, inject: [CLOCK], useFactory: (clock: Clock) => new KeycloakVerifier(configuration, clock) },
       { provide: CONFIGURATION, useValue: configuration }, { provide: ORM, useValue: orm }, { provide: SQS, useValue: sqs },
-      { provide: CLOCK, useFactory: () => new SystemClock() }, { provide: IDENTIFIERS, useFactory: () => new UuidIdentifiers() },
+      { provide: CLOCK, useFactory: () => options.clock ?? new SystemClock() }, { provide: IDENTIFIERS, useFactory: () => new UuidIdentifiers() },
       { provide: UNIT_OF_WORK, inject: [ORM], useFactory: (db: MikroORM) => new PostgresUnitOfWork(db, options) },
       { provide: WALLET_QUERIES, inject: [ORM], useFactory: (db: MikroORM) => new PostgresWalletQueries(db) },
       { provide: TRANSACTION_QUERIES, inject: [ORM], useFactory: (db: MikroORM) => new PostgresTransactionQueries(db) },

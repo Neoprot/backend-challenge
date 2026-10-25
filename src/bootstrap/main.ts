@@ -4,11 +4,11 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import { readConfiguration, type Configuration } from './config';
 import { createOrm } from '../persistence/orm';
-import { AppModule } from './app.module';
+import { AppModule, type ApplicationOptions } from './app.module';
 import { ErrorFilter, type HttpRequest, type HttpResponse } from '../http/error.filter';
 import { correlationId } from '../http/contracts';
 
-export async function createApplication(configuration: Configuration, options: { lockTimeoutMs?: number } = {}) {
+export async function createApplication(configuration: Configuration, options: ApplicationOptions = {}) {
   const orm = await createOrm(configuration.databaseUrl);
   const sqs = new SQSClient({ endpoint: configuration.sqsEndpoint, region: configuration.region, maxAttempts: 1,
     credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test', secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test' } });

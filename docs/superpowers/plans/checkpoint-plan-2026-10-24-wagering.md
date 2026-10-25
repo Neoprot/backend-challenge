@@ -17,8 +17,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 9 — Referências e reversão única | PARTIAL — aceite multiprocessos na tarefa 18 |
 | 10 — Consultas e reconciliação | COMPLETE |
 | 11 — Contrato HTTP e composição | COMPLETE |
-| 12 — Keycloak e autorização | IN_PROGRESS |
-| 13–19 | PENDING |
+| 12 — Keycloak e autorização | COMPLETE |
+| 13 — Inbox e consumidor SQS | IN_PROGRESS |
+| 14–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -201,3 +202,21 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Riscos/follow-ups:** prazo de readiness limita resposta, mas cancelamento da consulta PostgreSQL após deadline pode ser aperfeiçoado na tarefa17. Guard global será conectado agora na tarefa12; API ainda não foi entregue ou publicada sem autenticação.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa12.
+
+## Tarefa 12 — autenticação e autorização Keycloak
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, keycloak_tdd; revisão de conformidade pelo controlador e qualidade independente identity_quality_review.
+
+**Arquivos:** identity/principal/policy/verifier/guard/public, configuração e composição, controllers/filtro, helpers locais de tokens/admin, testes policy/verifier/config/error-filter/identity e adaptação HTTP sem bypass. Realm existente já atendia aos requisitos, sem alteração necessária.
+
+**TDD:** RED de quatro políticas, quatro IT de identidade, dois filtros401/403 e configuração JWKS ausente. GREEN ampliado com claims/tipo/algoritmo, tokens reais e rotação. Revisão independente reproduziu falha Important: JWKS200 com JSON inválido ou201/204 era401 indevido. Código jose6.2.13 confirmado pelo controlador; regressão teve3 RED unitários e RED em proxy do JWKS real com nova chave. Correção delimitou resolvedor e exigiuHTTP200 sem duplicar parser/schema. Revisor repetiu29 unitários e aprovou a correção.
+
+**Validação independente:** suíte IT completa89 pass/544 asserções mais preflight3 antes da última correção; após ela,48 focados/170 asserções incluindo identity/HTTP/rotação passaram. Suíte unitária final186 pass/468 asserções; typecheck passa.
+
+**Conformidade — PASS:** APP_GUARD global nega por padrão; apenas health público. RS256, issuer/audience exatos, exp/sub/aud/iss/typ obrigatórios, typBearer e claims em runtime. URLs JWKS vêm da configuração confiável; OIDC_JWKS_URI permite rede interna mantendo issuer público. Token inválido401, sem papel/provedor divergente403, falha JWKS503 sanitizado. Provedores só submetem/leem próprias transações inclusiveID interno; admin consulta globalmente, mas submissão exige papel e identidade de provedor. Parâmetro providerId solicitado ao endpoint de token não altera claim do IdP.
+
+**Qualidade — PASS após correção:** sem bypass de teste; ITHTTP usa tokens reais. Rotação cria componente RSA temporário, confirma kid diferente e valida tokens antigo/novo com cache; proxy só repassa JWKS real e injeta indisponibilidade/JSON inválido para nova chave. Cleanup de chave e cliente sem papéis emfinally comDELETE204. Teste de identidade aplica migrationsup independentemente, sem depender de outro arquivo.
+
+**Limitação documentada:** cooldown de busca JWKS de5s limita abuso por kids desconhecidos; IT do guard aguarda essa janela na rotação. Nenhum achado pendente.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa13.

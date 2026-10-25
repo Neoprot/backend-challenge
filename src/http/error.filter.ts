@@ -1,3 +1,4 @@
+import type { Principal } from '../identity/principal';
 import { ArgumentsHost, Catch, HttpException, type ExceptionFilter } from '@nestjs/common';
 import { DomainError } from '../shared/domain/domain-error';
 import { ApplicationError } from '../shared/application/application-error';
@@ -5,7 +6,7 @@ import { IdempotencyConflict } from '../wagering/application/idempotency';
 import { correlationId } from './contracts';
 import { isTransientFailure } from '../shared/application/transient-failure';
 
-export interface HttpRequest { headers: Record<string, unknown>; correlationId?: string; }
+export interface HttpRequest { headers: Record<string, unknown>; correlationId?: string; principal?: Principal; }
 export interface HttpResponse { status(value: number): HttpResponse; json(value: unknown): void; setHeader(name: string, value: string): void; }
 @Catch()
 export class ErrorFilter implements ExceptionFilter {
@@ -24,6 +25,9 @@ function publicError(error: unknown): { status: number; code: string; message: s
   if (error instanceof DomainError) return { status: error.code === 'WALLET_ALREADY_EXISTS' ? 409 : 400, code: error.code, message: error.message };
   if (isTransientFailure(error)) return { status: 503, code: 'DEPENDENCIES_UNAVAILABLE', message: 'Dependências temporariamente indisponíveis.' };
   const status = error instanceof HttpException ? error.getStatus() : parserStatus(error);
+  if (status === 401) return { status, code: 'UNAUTHORIZED', message: 'Autenticação obrigatória ou inválida.' };
+  if (status === 403) return { status, code: 'FORBIDDEN', message: 'Acesso não autorizado.' };
+  if (status === 503) return { status, code: 'DEPENDENCIES_UNAVAILABLE', message: 'Dependências temporariamente indisponíveis.' };
   if (status === 400 || status === 413 || status === 415) return { status, code: 'INVALID_REQUEST', message: 'Requisição inválida.' };
   if (status === 404 || status === 405) return { status, code: 'ROUTE_NOT_FOUND', message: 'Rota não encontrada.' };
   return { status: 500, code: 'INTERNAL_ERROR', message: 'Erro interno.' };

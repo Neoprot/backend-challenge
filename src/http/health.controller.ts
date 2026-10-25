@@ -1,3 +1,4 @@
+import { Public } from '../identity/public';
 import { Controller, Get, Inject } from '@nestjs/common';
 import type { MikroORM } from '@mikro-orm/postgresql';
 import { SQSClient, ListQueuesCommand } from '@aws-sdk/client-sqs';
@@ -26,8 +27,10 @@ export class Readiness {
 @Controller('health')
 export class HealthController {
   constructor(@Inject(Readiness) private readonly readiness: Readiness) {}
+  @Public()
   @Get('live')
   live() { return { status: 'alive' }; }
+  @Public()
   @Get('ready')
   ready() { return this.readiness.execute(); }
 }

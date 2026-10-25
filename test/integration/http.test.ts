@@ -4,12 +4,15 @@ import type { MikroORM } from '@mikro-orm/postgresql';
 import { createApplication } from '../../src/bootstrap/main';
 import { createOrm } from '../../src/persistence/orm';
 import { testEnvironment } from '../support/environment';
+import { accessToken } from '../support/identity';
 import { assertLedger } from '../support/assert-ledger';
 
 const environment = testEnvironment();
 const configuration = { ...environment, audience: 'wagering-api', port: 3000, region: 'us-east-1' };
 let app: INestApplication, orm: MikroORM, base: string;
+let providerToken: string, adminToken: string;
 beforeAll(async () => {
+  providerToken = await accessToken(); adminToken = await accessToken('admin');
   const migrator = await createOrm(environment.migrationDatabaseUrl);
   try { await migrator.migrator.up(); } finally { await migrator.close(true); }
   orm = await createOrm(environment.databaseUrl);
@@ -20,7 +23,7 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await orm?.close(true); });
 
 async function request(path: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) {
-  const response = await fetch(base + path, { method, headers: { 'content-type': 'application/json', ...headers },
+  const response = await fetch(base + path, { method, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (path.startsWith('/wagering/') || path.startsWith('/providers/aurora/') ? providerToken : adminToken), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   return { status: response.status, headers: response.headers, body: await response.json() as Record<string, any> };
 }
@@ -28,7 +31,7 @@ async function fixture() {
   const playerId = crypto.randomUUID();
   const opened = await request('/wallets', 'POST', { playerId, initialBalance: { amount: '100.00', currency: 'BRL' } });
   expect(opened.status).toBe(201);
-  const command = (patch: Record<string, unknown> = {}) => ({ providerId: 'http-provider', externalTransactionId: crypto.randomUUID(),
+  const command = (patch: Record<string, unknown> = {}) => ({ providerId: 'aurora', externalTransactionId: crypto.randomUUID(),
     playerId, walletId: opened.body.id, roundId: 'round', gameId: 'game', kind: 'BET', money: { amount: '25.00', currency: 'BRL' }, ...patch });
   const submit = (body: unknown, key = crypto.randomUUID()) => request('/wagering/transactions', 'POST', body, { 'Idempotency-Key': key, 'X-Correlation-Id': 'http-correlation' });
   return { playerId, walletId: opened.body.id as string, command, submit };
@@ -94,7 +97,7 @@ test('HTTP sanitiza contratos inválidos, JSON, rota, erros e correlação', asy
   }
   const invalidCorrelation = await request('/missing', 'GET', undefined, { 'X-Correlation-Id': 'unsafe value' });
   expect(invalidCorrelation.body.correlationId).toMatch(/^[0-9a-f-]{36}$/u);
-  const malformed = await fetch(base + '/wallets', { method: 'POST', headers: { 'content-type': 'application/json', 'x-correlation-id': 'bad-json' }, body: '{broken' });
+  const malformed = await fetch(base + '/wallets', { method: 'POST', headers: { 'content-type': 'application/json', 'x-correlation-id': 'bad-json', authorization: 'Bearer ' + adminToken }, body: '{broken' });
   expect(malformed.status).toBe(400);
   const malformedBody = await malformed.json() as Record<string, unknown>;
   expect(malformedBody.correlationId).toBe('bad-json');
