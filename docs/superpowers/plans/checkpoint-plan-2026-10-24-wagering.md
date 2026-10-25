@@ -11,8 +11,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 3 — Wallet e ledger | COMPLETE |
 | 4 — Transações e eventos | COMPLETE |
 | 5 — Schema e migrations | COMPLETE |
-| 6 — Unidade de trabalho e abertura | IN_PROGRESS |
-| 7–19 | PENDING |
+| 6 — Unidade de trabalho e abertura | COMPLETE |
+| 7 — Canonicalização e idempotência | IN_PROGRESS |
+| 8–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -97,3 +98,17 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 **Qualidade — PASS:** EntitySchema separado do domínio, mappers explícitos rehydrate, metadados de retry/lease preservados, contexto de teste isolado e SQLSTATE específico. Snapshot automático desativado; migrations explícitas são a fonte do schema. Sem achados pendentes.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 6.
+
+## Tarefa 6 — unidade de trabalho e abertura atômica
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, opening_atomicity; revisão independente pelo controlador.
+
+**Arquivos:** porta shared/application/unit-of-work, adaptador persistence/unit-of-work, OpenWallet, Clock/Identifiers, IT wallet/atomicity, unitário open-wallet e helpers faults/assert-ledger.
+
+**TDD:** 7 falhas comportamentais iniciais; GREEN com 7 IT. Revisão encontrou que uma exceção null era mascarada: regressão RED com TypeError, corrigida por guarda de tipo, seguida de GREEN. Acrescentados 3 unitários da orquestração. Validação do implementador: 83 unitários + 8 IT, 316 asserções. Controlador repetiu 11 testes focados, 76 asserções, e typecheck: todos passam.
+
+**Conformidade — PASS:** contexto fork/transactional isolado, abertura positiva com OPENING, crédito e dois eventos na mesma transação, versão 1; zero sem lançamento/evento; duplicidade sem efeito adicional. Falhas após cada flush comprovam rollback real de carteira/transação/ledger/outbox. Assertion financeira usa uma consulta SQL para comparar saldo e soma do ledger sem number.
+
+**Qualidade — PASS após correção:** porta sem tipos ORM, relógio/IDs injetáveis, helpers de falha apenas nos testes, classificação restrita à constraint de carteira duplicada, causa original preservada. Serialização da outbox limitada aos DTOs dos eventos concretos. Sem achados pendentes.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 7.
