@@ -14,16 +14,17 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 6 — Unidade de trabalho e abertura | COMPLETE |
 | 7 — Canonicalização e idempotência | COMPLETE |
 | 8 — Processamento financeiro compartilhado | COMPLETE |
-| 9 — Referências e reversão única | PARTIAL — aceite multiprocessos na tarefa 18 |
+| 9 — Referências e reversão única | COMPLETE — aceite multiprocessos na tarefa 18 |
 | 10 — Consultas e reconciliação | COMPLETE |
 | 11 — Contrato HTTP e composição | COMPLETE |
 | 12 — Keycloak e autorização | COMPLETE |
 | 13 — Inbox e consumidor SQS | COMPLETE |
-| 14 — Outbox recuperável | PARTIAL — aceite de processos na tarefa 18 |
-| 15 — Retry, DLQ e ciclo de vida | PARTIAL — aceite de sinais SO na tarefa 18 |
+| 14 — Outbox recuperável | COMPLETE — aceite de processos na tarefa 18 |
+| 15 — Retry, DLQ e ciclo de vida | COMPLETE — aceite de sinais SO na tarefa 18 |
 | 16 — Reprocessamento de referências | COMPLETE |
 | 17 — Logs, métricas e saúde | COMPLETE |
-| 18–19 | PENDING |
+| 18 — Harness multiprocessos e races | COMPLETE |
+| 19 — Documentação, reprodução e aceite | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -157,7 +158,7 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 
 ## Tarefa 9 — referências e reversão única
 
-**Status:** PARTIAL, implementação funcional concluída; aceite com processos distintos explicitamente reservado à tarefa 18 no plano. **Execution Mode:** Delegated, references_tdd, revisão independente pelo controlador.
+**Status:** COMPLETE — implementação funcional nesta etapa e aceite com processos distintos concluído na tarefa 18. **Execution Mode:** Delegated, references_tdd, revisão independente pelo controlador.
 
 **Arquivos:** FinancialSession, PostgresUnitOfWork, SubmitWager, dublês afetados, reference-fixture, IT references e concurrency/reversal.
 
@@ -167,7 +168,7 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 
 **Qualidade — PASS:** somente a wallet atual é bloqueada, evitando locks cruzados em referências divergentes. Regras permanecem puras; índice parcial continua como última garantia. Race aguarda dois locks reais no PostgreSQL e verifica um crédito, um evento Processed e um Rejected. Sem achados de código pendentes.
 
-**Risco/aceite pendente:** dois contextos no mesmo processo não substituem o harness multiprocessos. Repetir cenário na tarefa 18 antes de marcar COMPLETE e entregar. Worker de referências pertence à tarefa 16.
+**Aceite complementar:** o harness da tarefa 18 repetiu a disputa entre REFUND e ROLLBACK com processos distintos e confirmou um único crédito. Worker de referências concluído na tarefa 16.
 
 **Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa 10, conforme sequência aprovada.
 
@@ -245,7 +246,7 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 
 ## Tarefa 14 — outbox recuperável e publishers
 
-**Status:** PARTIAL, escopo funcional concluído; morte/reinício de processos SO e harness final na18 conforme plano. **Execution Mode:** Delegated, outbox_tdd, conformidade pelo controlador e qualidade independente outbox_quality_review.
+**Status:** COMPLETE — escopo funcional nesta etapa; morte/reinício de processos SO e harness concluídos na tarefa 18. **Execution Mode:** Delegated, outbox_tdd, conformidade pelo controlador e qualidade independente outbox_quality_review.
 
 **Arquivos:** OutboxMessage, porta/store PostgreSQL, OutboxPublisher, consumidor demonstrativo de evento com inbox persistente, testes unit/outboxIT/publishers.
 
@@ -255,13 +256,13 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 
 **Qualidade — PASS:** domínio usa campo privado nativo, cópias e freeze. Lote concorrente bounded, prazo de envio <= metade do lease, timer cancelado e allSettled aguardando todos envios antes de retorno/erro. Produção usa relógio PostgreSQL; Clock/IDs de escopo são usados só para isolação e teste determinístico, sem limpeza de eventos globais. Demo não executa efeito externo nem realimenta comandos.
 
-**Aceite pendente:** testes atuais trocam instâncias/contextos reais, mas não substituem morte/reinício de processos SO. Validar na18 antes de marcar COMPLETE. Supervisor/bootstrap/shutdown pertencem à15. Sem achados de código pendentes.
+**Aceite complementar:** a tarefa 18 confirmou publishers com owners distintos e recuperação após morte do processo entre SendMessage e publishedAt, preservando payload/eventId. Supervisor/bootstrap/shutdown concluídos na tarefa 15 e sinais de SO aceitos na tarefa 18.
 
 **Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa15.
 
 ## Tarefa 15 — retry, DLQ e ciclo de vida
 
-**Status:** PARTIAL, escopo funcional validado; sinais reais de SO/SIGKILL ficam no harness18. **Execution Mode:** Delegated, recovery_lifecycle_tdd; conformidade pelo controlador e qualidade independente recovery_quality_review.
+**Status:** COMPLETE — escopo funcional nesta etapa e sinais reais de SO aceitos na tarefa 18. **Execution Mode:** Delegated, recovery_lifecycle_tdd; conformidade pelo controlador e qualidade independente recovery_quality_review.
 
 **Arquivos:** worker-lifecycle, SqsConsumer, runtime/main de workers, SubmitWager.recordPermanentFailure, transient-failure, RecoveringPostgreSqlDriver/orm, scripts, testes retry/DLQ/recovery e helper de outage restrito.
 
@@ -312,3 +313,21 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Validação final do controlador:** 240 unitários/690 asserções, oito IT de observabilidade/95 asserções e typecheck passaram. Os IT repetiram outages reais separados de SQS e PostgreSQL, com restauração dos serviços. Revisão de conformidade — PASS; revisão independente de qualidade — PASS após o fechamento dos dois P2, sem novos achados. O revisor também repetiu 240 unitários e typecheck.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 18.
+
+## Tarefa 18 — harness multiprocessos e recuperação real
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, multiprocess_tdd, para harness nativo; controlador implementou os aceites Linux de sinais. Nenhuma alteração de produção foi necessária nesta etapa.
+
+**TDD e aceites:** harness vazio retornava zero processos e a barreira liberava uma chegada prematuramente; RED antes das implementações. Proteções Linux tiveram três RED para projeto/rede/saúde e publicação de porta. Regressões adicionais demonstraram filho órfão após perder IPC e erro SQL do bloqueador convertido em timeout; ambos corrigidos após RED. Os cenários financeiros e de sinais exercitam comportamento de produção já implementado, sem inventar um RED histórico. Uma primeira falha Linux foi configuração inválida do próprio teste, waitTimeSeconds igual a zero; corrigida para o contrato de 1 a 20. Falha posterior de snapshot do cache Docker ocorreu antes dos testes; reconstrução com --no-cache resolveu, sem limpeza global ou reinício do daemon.
+
+**Concorrência:** três processos Bun reais possuem PIDs, portas e sessões PostgreSQL distintos e ficam ready antes da barreira. Cinquenta BET iguais produzem uma nova operação e 49 replays; após reinício completo, outras cinquenta são replays do mesmo ID, mantendo um débito. Duas apostas de 80.00 sobre 100.00 resultam em um processamento, uma rejeição por saldo e saldo final 20.00. Carteira B confirma enquanto A continua bloqueada. REFUND e ROLLBACK disputam a mesma referência em processos diferentes, com um único crédito e a outra operação rejeitada. Barreiras e pg_blocking_pids comprovam contenção, incluindo a fila transitiva de bloqueio.
+
+**Crashes:** supervisor mata o processo após sinal de commit e antes do ACK. Outro PID recebe a mensagem com receiveCount maior ou igual a dois; transação, inbox, débito e saldo permanecem únicos. Publishers independentes usam leases e owners diferentes. Morte após SendMessage e antes de publishedAt deixa o evento recuperável; novo PID aguarda o prazo PostgreSQL e publica o mesmo payload/eventId. Controles são módulos de teste por IPC e dependências injetáveis, sem endpoint ou flag de produção.
+
+**Sinais Linux:** entrypoint real de workers executado na imagem Bun 1.3.11, com filas próprias e somente portas em loopback. SIGTERM durante SQL bloqueada aguarda liberação, confirma operação e ACK, preserva o segundo comando e sai com zero. Prazo de 1 s excedido resulta em exit 1 dentro da margem de observação da CLI; nenhuma transação/inbox parcial permanece. ReceiveMessage imediato comprova devolução da visibilidade antes da expiração natural; retomada confirma um único débito. Ledger é reconciliado e conexões do container encerrado desaparecem. Dois testes/26 asserções passaram no controlador.
+
+**Isolamento e cleanup:** recursos Docker são inspecionados por labels do projeto wagering-test antes de uso; remoção só do container criado pela própria execução e suas filas. Sinais executam depois da suíte nativa porque o runtime completo faz scans globais de outbox/referências. Stderr dos filhos é coletado com limite; cleanup aninhado tenta encerrar processos, filas e ORM mesmo em falhas. Perda de IPC encerra o filho e impede órfãos.
+
+**Revisão e validação final:** conformidade — PASS; qualidade independente — PASS após dois P2 com RED antes das correções. A perda do supervisor durante startup/imports agora encerra o filho, inclusive se o canal já estiver fechado. Falha de docker run após criar o container agora remove o recurso por nome e owner próprios; erros de cleanup são preservados. Runner completo passou: 14 testes nativos/97 asserções e dois Linux/26, em invocações sequenciais. Unitários: 245/706; typecheck passou. Controlador repetiu 244 unitários antes do último ajuste, quatro unitários Linux após ele e os aceites Linux reais; revisor repetiu os 245 unitários e typecheck. Nenhum processo filho ou container de sinais permaneceu ativo. Aceites complementares das tarefas 9, 14 e 15 encerrados.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 19.

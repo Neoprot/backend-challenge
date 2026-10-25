@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "bun test test/unit",
     "test:it": "bun scripts/run-integration.ts",
+    "test:concurrency": "bun scripts/run-concurrency.ts",
     "migration:up": "bun scripts/migrate.ts up",
     "migration:down": "bun scripts/migrate.ts down"
   },
