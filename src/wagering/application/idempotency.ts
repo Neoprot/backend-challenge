@@ -7,6 +7,8 @@ import type { InboxContext } from '../../messaging/domain/inbox-message';
 export interface IdempotentOptions { lockWallet: boolean; inbox?: InboxContext; }
 
 export interface IdempotentUnitOfWork {
+  runPending?(id: string, owner: string, now: (() => Date) | undefined, work: (transaction: WagerTransaction, session: FinancialSession,
+    context: { correlationId: string; causationId?: string }, expired: boolean) => Promise<ProcessingResult>): Promise<void>;
   runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: IdempotentOptions): Promise<ProcessingResponse>;
 }
 export class IdempotencyConflict extends DomainError {

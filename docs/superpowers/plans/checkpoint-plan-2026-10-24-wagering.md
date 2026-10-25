@@ -21,8 +21,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 13 — Inbox e consumidor SQS | COMPLETE |
 | 14 — Outbox recuperável | PARTIAL — aceite de processos na tarefa 18 |
 | 15 — Retry, DLQ e ciclo de vida | PARTIAL — aceite de sinais SO na tarefa 18 |
-| 16 — Reprocessamento de referências | IN_PROGRESS |
-| 17–19 | PENDING |
+| 16 — Reprocessamento de referências | COMPLETE |
+| 17 — Logs, métricas e saúde | IN_PROGRESS |
+| 18–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -277,3 +278,19 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Trade-offs:** FAILED técnico não inventa novo evento; auditoria fica no estado/hash/resultado/inbox e observabilidade17. OutageSQS prova recuperação daoutboxPG emfila recriada; LocalStack atualsemPERSISTENCE não demonstra durabilidade interna dobroker. Helperconfere labels wagering-test/serviço antesstop e finallyrestaurahealthy+emissãorealKeycloak. Nenhum recurso dev/volume foi removido.
 
 **Implementer Outcome:** DONE no escopo funcional. **Próxima ação:** tarefa16.
+
+## Tarefa 16 — reprocessamento de referências
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, reference_worker_tdd. Conformidade revisada pelo controlador; qualidade independente por reference_quality_review.
+
+**Arquivos:** porta e adaptador de referências, ReferenceWorker, PostgresUnitOfWork.runPending, SubmitWager.reprocessPending, integração no runtime, testes unitários e IT isolados em reference-worker.test.ts.
+
+**TDD:** quatro falhas comportamentais antes do núcleo; regressões adicionais RED/GREEN para rollback e divergência entre os relógios da aplicação e do PostgreSQL. O teste com relógio da aplicação adiantado em sete dias demonstrou um claim válido sendo ignorado; a correção usa PostgreSQL como autoridade de claim, fence, TTL e backoff em produção. Relógio explícito permanece disponível para testes determinísticos.
+
+**Validação:** implementador executou 229 unitários, 30 testes de referências/concorrência e sete de recovery sem outages. Controlador repetiu 33 testes de referências/concorrência, com 210 asserções, e sete de recovery, com 53 asserções; todos passaram. Typecheck passou. O revisor repetiu três unitários e não encontrou achados acionáveis.
+
+**Conformidade — PASS:** seleção com lease e SKIP LOCKED confirmada antes de bloquear a carteira; ordem carteira → refresh/lock da pendência → validação de owner, estado e prazo. Reprocessamento atualiza a mesma transação e não cria inbox. Reutiliza as regras financeiras, preserva correlação e causalidade originais e atualiza o resultado persistido. Replay externo continua apenas leitura. Backoff começa em 1 s, tem teto de 5 min e respeita o deadline de 24 h; expiração emite uma única rejeição REFERENCE_EXPIRED, sem repetir PendingReference. Referência terminal não processada é rejeitada imediatamente.
+
+**Qualidade — PASS:** porta na aplicação, processamento paralelo limitado e allSettled para drain completo. Testes comprovam retomada, owner obsoleto, liberação da seleção antes da espera pela carteira, rollback financeiro e preservação integral da inbox aceita. A fixture FAILED usa o caso de uso real em vez de alterar artificialmente um estado terminal. Runtime inclui o terceiro worker. Nenhum achado pendente.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa 17.

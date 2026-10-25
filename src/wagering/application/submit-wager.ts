@@ -15,6 +15,10 @@ import { WagerTransactionProcessed, WagerTransactionRejected, WagerTransactionPe
 
 export interface SubmissionContext { idempotencyKey: string; correlationId: string; causationId?: string; inbox?: InboxContext; }
 export class SubmitWager {
+  async reprocessPending(id: string, owner: string, now?: () => Date): Promise<void> {
+    if (!this.uow.runPending) throw new Error('Unidade de trabalho sem suporte a referências pendentes.');
+    await this.uow.runPending(id, owner, now, (tx, session, context, expired) => this.process(tx, session, context, expired));
+  }
   constructor(private readonly uow: IdempotentUnitOfWork, private readonly clock: Clock, private readonly ids: Identifiers,
     private readonly sleep: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds)) {}
   async execute(input: unknown, context: SubmissionContext): Promise<ProcessingResponse> {
@@ -51,19 +55,20 @@ export class SubmitWager {
       return { transactionId: transaction.id, status: transaction.status, failureCode: transaction.failureCode!, httpStatus: 500, terminal: true };
     }, { lockWallet: true, ...(context.inbox === undefined ? {} : { inbox: context.inbox }) });
   }
-  private async process(tx: WagerTransaction, session: FinancialSession, context: SubmissionContext): Promise<ProcessingResult> {
+  private async process(tx: WagerTransaction, session: FinancialSession, context: Pick<SubmissionContext, 'correlationId' | 'causationId'>, expired = false): Promise<ProcessingResult> {
     const wallet = await session.lockWallet(tx.walletId);
     const reference = tx.referenceExternalTransactionId === undefined ? undefined
       : await session.findReference(tx.providerId, tx.referenceExternalTransactionId);
     const alreadyReversed = tx.requiresReference() && reference !== undefined
       ? await session.hasCompletedReversal(reference.id) : false;
-    const decision = WagerRules.evaluate(tx, wallet, reference, alreadyReversed);
+    const decision = expired ? { type: 'reject' as const, failureCode: 'REFERENCE_EXPIRED' as const } : WagerRules.evaluate(tx, wallet, reference, alreadyReversed);
     const occurredAt = this.clock.now();
     const eventContext = () => ({ eventId: this.ids.next(), correlationId: context.correlationId, occurredAt,
       ...(context.causationId === undefined ? {} : { causationId: context.causationId }) });
     if (decision.type === 'wait') {
+      const initial = tx.status !== 'PENDING_REFERENCE';
       tx.markPendingReference();
-      await session.enqueue(WagerTransactionPendingReference.from(tx, eventContext()));
+      if (initial) await session.enqueue(WagerTransactionPendingReference.from(tx, eventContext()));
       return { transactionId: tx.id, status: tx.status, httpStatus: 202, terminal: false };
     }
     if (decision.type === 'reject') {

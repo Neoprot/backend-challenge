@@ -12,7 +12,38 @@ import { processingResponse, type ProcessingResult, type ProcessingResponse } fr
 import { IdempotencyConflict, type IdempotentUnitOfWork, type IdempotentOptions } from '../wagering/application/idempotency';
 
 export class PostgresUnitOfWork implements UnitOfWork, IdempotentUnitOfWork {
-  constructor(private readonly orm: MikroORM, private readonly options: { lockTimeoutMs?: number; afterInboxReserved?: () => Promise<void> } = {}) {
+  async runPending(id: string, owner: string, now: (() => Date) | undefined, work: (transaction: WagerTransaction, session: FinancialSession,
+    context: { correlationId: string; causationId?: string }, expired: boolean) => Promise<ProcessingResult>): Promise<void> {
+    await this.orm.em.fork().transactional(async em => {
+      await em.execute("select set_config('lock_timeout', ?, true)", [`${this.options.lockTimeoutMs ?? 3000}ms`]);
+      // Consulta sem lock: a seleção já foi confirmada. Nunca aguardar carteira segurando o lock da pendência.
+      const candidate = await em.findOne(WagerRecord, { id });
+      if (!candidate || candidate.status !== 'PENDING_REFERENCE') return;
+      await this.lockWallet(em, candidate.walletId);
+      const record = await em.findOneOrFail(WagerRecord, { id }, { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true });
+      // Mesma autoridade temporal do claim em produção, medida depois da espera pelos locks.
+      const checkedAt = now ? now() : new Date((await em.execute<{ now: Date }[]>('select statement_timestamp() as now'))[0]!.now);
+      if (record.status !== 'PENDING_REFERENCE' || record.leaseOwner !== owner || record.leaseUntil === null || record.leaseUntil <= checkedAt) return;
+      if (record.referenceDeadline === null) throw new Error('Pendência sem prazo persistido.');
+      const pending = await em.findOneOrFail(OutboxRecord, { aggregateId: id, eventType: 'WagerTransactionPendingReference' });
+      const payload = pending.payload as { correlationId?: unknown; causationId?: unknown };
+      if (typeof payload.correlationId !== 'string' || payload.causationId !== undefined && typeof payload.causationId !== 'string') throw new Error('Contexto original inválido.');
+      const tx = wagerFromRecord(record);
+      const result = await work(tx, this.session(em), { correlationId: payload.correlationId,
+        ...(typeof payload.causationId === 'string' ? { causationId: payload.causationId } : {}) }, record.referenceDeadline <= checkedAt);
+      if (result.transactionId !== id || result.status !== tx.status || result.terminal !== tx.isTerminal()) throw new Error('Resultado incompatível com a transação.');
+      wagerToRecord(tx, record);
+      record.result = structuredClone(result) as unknown as JsonValue;
+      if (tx.status === 'PENDING_REFERENCE') {
+        record.nextAttemptAt = new Date(Math.min(record.referenceDeadline.getTime(), checkedAt.getTime() + Math.min(300000, 1000 * 2 ** Math.min(record.attempts, 9))));
+        record.attempts++;
+      } else record.nextAttemptAt = null;
+      record.leaseOwner = null; record.leaseUntil = null;
+      await em.flush();
+      await this.options.beforePendingCommit?.();
+    });
+  }
+  constructor(private readonly orm: MikroORM, private readonly options: { lockTimeoutMs?: number; afterInboxReserved?: () => Promise<void>; beforePendingCommit?: () => Promise<void> } = {}) {
     if (options.lockTimeoutMs !== undefined && (!Number.isInteger(options.lockTimeoutMs) || options.lockTimeoutMs < 1 || options.lockTimeoutMs > 60000)) {
       throw new Error('lockTimeoutMs deve estar entre 1 e 60000.');
     }

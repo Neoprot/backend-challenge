@@ -6,6 +6,8 @@ import { SqsConsumer } from './sqs-consumer';
 import { OutboxPublisher } from './outbox-publisher';
 import { PostgresOutboxStore } from '../persistence/outbox-store';
 import { UuidIdentifiers } from '../shared/domain/identifiers';
+import { ReferenceWorker } from './reference-worker';
+import { PostgresReferenceStore } from '../persistence/reference-store';
 export interface WorkerConfiguration {
   requestQueueUrl: string; requestDlqUrl: string; eventQueueUrl: string; consumerName: string;
   visibilityTimeoutSeconds: number; heartbeatMs: number; shutdownGraceMs: number;
@@ -43,5 +45,6 @@ export function createWorkerRuntime(configuration: WorkerConfiguration, orm: Mik
     },
   });
   const publisher = new OutboxPublisher(new PostgresOutboxStore(orm), sqs, configuration.eventQueueUrl, new UuidIdentifiers());
-  return new WorkerLifecycle([consumer, publisher], { onError: () => { console.error('Worker indisponível; nova tentativa será agendada.'); } });
+  const references = new ReferenceWorker(new PostgresReferenceStore(orm), submit, new UuidIdentifiers());
+  return new WorkerLifecycle([consumer, publisher, references], { onError: () => { console.error('Worker indisponível; nova tentativa será agendada.'); } });
 }
