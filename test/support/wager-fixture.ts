@@ -1,0 +1,10 @@
+import { Money } from '../../src/shared/domain/money';
+import { Wallet } from '../../src/wallets/domain/wallet';
+import { WagerTransaction, type CreateWagerTransactionProps } from '../../src/wagering/domain/wager-transaction';
+export const at = new Date('2026-01-01T00:00:00Z');
+export const money = (amount = '20.00', currency = 'BRL') => Money.from({ amount, currency });
+export const wallet = (amount = '100.00') => Wallet.open({ id: 'w', playerId: 'p', initialBalance: money(amount), at });
+export const props = (patch: Partial<CreateWagerTransactionProps> = {}): CreateWagerTransactionProps => ({ id: 't', providerId: 'provider', externalTransactionId: 'external', idempotencyKey: 'key', payloadHash: 'hash', walletId: 'w', playerId: 'p', roundId: 'round', gameId: 'game', kind: 'BET', money: money(), createdAt: at, ...patch });
+export const transaction = (patch: Partial<CreateWagerTransactionProps> = {}) => WagerTransaction.create(props(patch));
+export const reference = (patch: Partial<CreateWagerTransactionProps> = {}) => { const tx = transaction({ id: 'ref', externalTransactionId: 'ref-external', ...patch }); tx.markProcessed(tx.referenceExternalTransactionId ? 'original-internal' : undefined, at); return tx; };
+export const reversal = (patch: Partial<CreateWagerTransactionProps> = {}) => transaction({ kind: 'REFUND', referenceExternalTransactionId: 'ref-external', ...patch });

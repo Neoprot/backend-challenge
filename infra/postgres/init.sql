@@ -1,0 +1,15 @@
+-- Credenciais descartáveis, exclusivas de desenvolvimento/teste local.
+CREATE ROLE wager_migrator LOGIN PASSWORD 'local-migrator-only' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE ROLE wager_app LOGIN PASSWORD 'local-app-only' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE ROLE identity_owner LOGIN PASSWORD 'local-identity-only' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+CREATE DATABASE identity OWNER identity_owner;
+REVOKE CONNECT ON DATABASE identity FROM PUBLIC;
+\getenv app_db POSTGRES_DB
+ALTER DATABASE :"app_db" OWNER TO wager_migrator;
+REVOKE ALL ON DATABASE :"app_db" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"app_db" TO wager_app;
+\connect :app_db
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT USAGE ON SCHEMA public TO wager_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE wager_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO wager_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE wager_migrator IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO wager_app;

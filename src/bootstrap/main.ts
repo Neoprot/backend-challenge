@@ -1,0 +1,47 @@
+import 'reflect-metadata';
+import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import { SQSClient } from '@aws-sdk/client-sqs';
+import { readConfiguration, type Configuration } from './config';
+import { createOrm } from '../persistence/orm';
+import { AppModule, type ApplicationOptions } from './app.module';
+import { ErrorFilter, type HttpRequest, type HttpResponse } from '../http/error.filter';
+import { correlationId } from '../http/contracts';
+import { ApplicationObservation } from '../observability/observation';
+import { runWithContext } from '../observability/context';
+import { observe } from '../shared/application/observation';
+
+export async function createApplication(configuration: Configuration, options: ApplicationOptions = {}) {
+  const orm = await createOrm(configuration.databaseUrl);
+  const sqs = new SQSClient({ endpoint: configuration.sqsEndpoint, region: configuration.region, maxAttempts: 1,
+    credentials: { accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? 'test', secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? 'test' } });
+  try {
+    const app = await NestFactory.create<NestExpressApplication>(AppModule.register(configuration, orm, sqs, options),
+      { logger: false, bodyParser: false, abortOnError: false });
+    app.use((request: HttpRequest, response: HttpResponse, next: () => void) => {
+      request.correlationId = correlationId(request.headers['x-correlation-id']);
+      response.setHeader('X-Correlation-Id', request.correlationId);
+      runWithContext({ correlationId: request.correlationId }, () => {
+        const started = performance.now();
+        const completed = response as HttpResponse & { statusCode: number; once(event: 'finish', listener: () => void): void };
+        completed.once('finish', () => observe(app.get(ApplicationObservation), 'http_completed', {
+          component: 'http', correlationId: request.correlationId, httpStatus: completed.statusCode, durationSeconds: (performance.now() - started) / 1000,
+        }));
+        next();
+      });
+    });
+    app.useBodyParser('json', { limit: '64kb' });
+    app.useGlobalFilters(new ErrorFilter());
+    return app;
+  } catch (error) { sqs.destroy(); await orm.close(true); throw error; }
+}
+
+export async function bootstrap() {
+  const configuration = readConfiguration(process.env);
+  const app = await createApplication(configuration);
+  app.enableShutdownHooks();
+  try { await app.listen(configuration.port, '0.0.0.0'); }
+  catch (error) { await app.close(); throw error; }
+  return app;
+}
+if (import.meta.main) await bootstrap();
