@@ -2,7 +2,7 @@ import { testEnvironment } from './environment';
 import { accessToken } from './identity';
 type Service = 'postgres' | 'localstack';
 async function docker(args: string[]): Promise<string> {
-  const child = Bun.spawn(['rtk', 'proxy', 'docker', ...args], { stdout: 'pipe', stderr: 'pipe' });
+  const child = Bun.spawn(['docker', ...args], { stdout: 'pipe', stderr: 'pipe' });
   const [stdout, stderr, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exit !== 0) throw new Error(`Docker falhou (${exit}): ${stderr}`);
   return stdout;

@@ -1,14 +1,14 @@
 # Guia de execução e testes
 
-Abra um terminal na pasta do repositório, na branch `codex/feat-distributed-wagering`. São necessários Bun 1.3.11, RTK e Docker com Compose; no Windows, utilize containers Linux no Docker Desktop.
+Abra um terminal na pasta do repositório, na branch `codex/feat-distributed-wagering`. São necessários Bun 1.3.11 e Docker com Compose; no Windows, utilize containers Linux no Docker Desktop.
 
 ## 1. Preparar o ambiente
 
 Na primeira execução, copie o exemplo. `-NoClobber` preserva um `.env` que já exista.
 
 ```powershell
-rtk proxy powershell -NoProfile -Command "Copy-Item -LiteralPath .env.example -Destination .env -NoClobber"
-rtk proxy bun install --frozen-lockfile
+powershell -NoProfile -Command "Copy-Item -LiteralPath .env.example -Destination .env -NoClobber"
+bun install --frozen-lockfile
 ```
 
 O `.env.example` contém banco da aplicação, credencial separada de migrations, Keycloak, filas e configurações exclusivas de testes. Os valores são fixtures locais. O `.env` está no `.gitignore`; somente o exemplo deve ser versionado.
@@ -16,7 +16,7 @@ O `.env.example` contém banco da aplicação, credencial separada de migrations
 ## 2. Iniciar PostgreSQL, SQS e Keycloak
 
 ```powershell
-rtk proxy docker compose up -d --wait postgres localstack keycloak
+docker compose up -d --wait postgres localstack keycloak
 ```
 
 Espere o comando terminar com sucesso. As portas de desenvolvimento são PostgreSQL `55432`, LocalStack `4566` e Keycloak `8180`.
@@ -28,8 +28,8 @@ Use uma das alternativas abaixo. Ambas iniciam HTTP, consumidor SQS, publisher d
 ### Alternativa A: Bun local
 
 ```powershell
-rtk proxy bun run migration:up
-rtk proxy bun run start
+bun run migration:up
+bun run start
 ```
 
 Mantenha esse terminal aberto. A API fica em `http://localhost:3000`. Use outro terminal na mesma pasta para os próximos passos; o `API_BASE_URL` padrão do `.env.example` já corresponde a esse endereço.
@@ -37,10 +37,10 @@ Mantenha esse terminal aberto. A API fica em `http://localhost:3000`. Use outro 
 ### Alternativa B: três instâncias no Docker
 
 ```powershell
-rtk proxy docker compose --profile tools run --rm --build migrator
-rtk proxy docker compose --profile app up -d --build --wait --scale api=3
-rtk proxy docker compose --profile app ps
-rtk proxy docker compose port --index 1 api 3000
+docker compose --profile tools run --rm --build migrator
+docker compose --profile app up -d --build --wait --scale api=3
+docker compose --profile app ps
+docker compose port --index 1 api 3000
 ```
 
 O último comando retorna um endereço como `127.0.0.1:53470`. Atualize `API_BASE_URL` no seu `.env` para esse endereço, com `http://` na frente. A porta é dinâmica: confira novamente após recriar containers. Os índices `2` e `3` mostram as demais instâncias.
@@ -50,7 +50,7 @@ O Compose configura os endereços internos dos serviços. Não substitua os ende
 ## 4. Executar a demonstração completa
 
 ```powershell
-rtk proxy bun run seed:local
+bun run seed:local
 ```
 
 O script obtém tokens reais no Keycloak e executa:
@@ -66,7 +66,7 @@ Confira a saída: `replayConfirmed: true`, saldo `85.00 BRL`, `consistent: true`
 Para testar também o exemplo HTTP em PowerShell:
 
 ```powershell
-rtk proxy powershell -NoProfile -File scripts/demo-http.ps1 -ApiBaseUrl http://localhost:3000
+powershell -NoProfile -File scripts/demo-http.ps1 -ApiBaseUrl http://localhost:3000
 ```
 
 No Docker, substitua a URL pela porta descoberta no passo 3. Esse exemplo cria outra carteira, faz BET e replay e consulta ledger/reconciliação. O resultado esperado é saldo `75.00 BRL`, mesma transação no replay e dois lançamentos.
@@ -84,11 +84,11 @@ Os testes utilizam o projeto separado `wagering-test`, banco/volume próprios e 
 Execute os comandos nesta ordem, sem rodar integração e concorrência em paralelo:
 
 ```powershell
-rtk proxy docker compose -f compose.yaml -f compose.test.yaml up -d --wait postgres localstack keycloak
-rtk proxy bun run typecheck
-rtk proxy bun run test:unit
-rtk proxy bun run test:it
-rtk proxy bun run test:concurrency
+docker compose -f compose.yaml -f compose.test.yaml up -d --wait postgres localstack keycloak
+bun run typecheck
+bun run test:unit
+bun run test:it
+bun run test:concurrency
 ```
 
 | Comando | O que verifica |
@@ -107,8 +107,8 @@ A matriz detalhada está em [ARCHITECTURE.md](../ARCHITECTURE.md#rastreabilidade
 Para conferir containers e logs do runtime Docker:
 
 ```powershell
-rtk proxy docker compose --profile app ps
-rtk proxy docker compose --profile app logs --tail 100 api
+docker compose --profile app ps
+docker compose --profile app logs --tail 100 api
 ```
 
 Se o seed não encontrar a API, confira `API_BASE_URL` e a porta atual. Se a WIN não concluir, confira se usou `start` ou o profile `app`: `start:http` inicia somente HTTP. Se uma porta de infraestrutura estiver ocupada, confira os processos/containers que a utilizam antes de iniciar outra instalação.
@@ -116,9 +116,9 @@ Se o seed não encontrar a API, confira `API_BASE_URL` e a porta atual. Se a WIN
 Para parar as instâncias Docker e a infraestrutura, preservando os volumes:
 
 ```powershell
-rtk proxy docker compose --profile app stop api
-rtk proxy docker compose stop postgres localstack keycloak
-rtk proxy docker compose -f compose.yaml -f compose.test.yaml stop postgres localstack keycloak
+docker compose --profile app stop api
+docker compose stop postgres localstack keycloak
+docker compose -f compose.yaml -f compose.test.yaml stop postgres localstack keycloak
 ```
 
 Na execução nativa, encerre `bun run start` com Ctrl+C. O encerramento coordenado é exercitado pela suíte; os testes não exigem matar manualmente processos ou corromper dados.
