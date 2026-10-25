@@ -2,9 +2,12 @@ import type { FinancialSession } from '../../shared/application/unit-of-work';
 import type { WagerTransaction } from '../domain/wager-transaction';
 import type { ProcessingResult, ProcessingResponse } from './processing-result';
 import { DomainError } from '../../shared/domain/domain-error';
+import type { InboxContext } from '../../messaging/domain/inbox-message';
+
+export interface IdempotentOptions { lockWallet: boolean; inbox?: InboxContext; }
 
 export interface IdempotentUnitOfWork {
-  runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: { lockWallet: boolean }): Promise<ProcessingResponse>;
+  runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: IdempotentOptions): Promise<ProcessingResponse>;
 }
 export class IdempotencyConflict extends DomainError {
   readonly httpStatus = 409;

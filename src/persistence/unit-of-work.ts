@@ -3,50 +3,81 @@ import { LockMode } from '@mikro-orm/core';
 import type { UnitOfWork, FinancialSession } from '../shared/application/unit-of-work';
 import { DomainError } from '../shared/domain/domain-error';
 import { walletToRecord, walletFromRecord, wagerToRecord, wagerFromRecord, ledgerToRecord } from './mappers';
-import { OutboxRecord, WagerRecord, WalletRecord, type JsonValue } from './records';
+import { InboxRecord, OutboxRecord, WagerRecord, WalletRecord, type JsonValue } from './records';
+import { InboxMessage } from '../messaging/domain/inbox-message';
+import type { InboxContext } from '../messaging/domain/inbox-message';
 import { ApplicationError } from '../shared/application/application-error';
 import type { WagerTransaction } from '../wagering/domain/wager-transaction';
 import { processingResponse, type ProcessingResult, type ProcessingResponse } from '../wagering/application/processing-result';
-import { IdempotencyConflict, type IdempotentUnitOfWork } from '../wagering/application/idempotency';
+import { IdempotencyConflict, type IdempotentUnitOfWork, type IdempotentOptions } from '../wagering/application/idempotency';
 
 export class PostgresUnitOfWork implements UnitOfWork, IdempotentUnitOfWork {
-  constructor(private readonly orm: MikroORM, private readonly options: { lockTimeoutMs?: number } = {}) {
+  constructor(private readonly orm: MikroORM, private readonly options: { lockTimeoutMs?: number; afterInboxReserved?: () => Promise<void> } = {}) {
     if (options.lockTimeoutMs !== undefined && (!Number.isInteger(options.lockTimeoutMs) || options.lockTimeoutMs < 1 || options.lockTimeoutMs > 60000)) {
       throw new Error('lockTimeoutMs deve estar entre 1 e 60000.');
     }
   }
-  async runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: { lockWallet: boolean }): Promise<ProcessingResponse> {
+  async runIdempotent(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: IdempotentOptions): Promise<ProcessingResponse> {
     try {
-      return await this.orm.em.fork().transactional(async em => {
-        const existing = await this.findIdentity(em, transaction);
-        if (existing.length) return this.replay(existing, transaction);
-        if (options?.lockWallet) {
-          await em.execute("select set_config('lock_timeout', ?, true)", [`${this.options.lockTimeoutMs ?? 3000}ms`]);
-          // Bloquear antes do INSERT evita promoção concorrente dos locks KEY SHARE da FK.
-          await this.lockWallet(em, transaction.walletId);
-        }
-        const record = wagerToRecord(transaction);
-        await em.persist(record).flush();
-        const result = await work(this.session(em));
-        if (result.transactionId !== transaction.id || result.status !== transaction.status || result.terminal !== transaction.isTerminal()) {
-          throw new Error('Resultado incompatível com a transação.');
-        }
-        wagerToRecord(transaction, record);
-        if (transaction.status === 'PENDING_REFERENCE') {
-          record.referenceDeadline = new Date(transaction.createdAt.getTime() + 86400000);
-          record.nextAttemptAt = new Date(transaction.createdAt.getTime() + 1000);
-        }
-        record.result = structuredClone(result) as unknown as JsonValue;
-        await em.flush();
-        return processingResponse(result, false);
-      });
+      return await this.attempt(transaction, work, options);
     } catch (error) {
       if (!isIdempotencyViolation(error)) throw error;
-      // A transação anterior já foi desfeita. Nunca consultar seu contexto abortado.
-      const rows = await this.findIdentity(this.orm.em.fork(), transaction);
-      if (!rows.length) throw error;
-      return this.replay(rows, transaction);
+      // O contexto abortado foi descartado. A recuperação inclui a inbox na nova SQL.
+      return this.attempt(transaction, work, options);
     }
+  }
+  private async attempt(transaction: WagerTransaction, work: (session: FinancialSession) => Promise<ProcessingResult>, options?: IdempotentOptions): Promise<ProcessingResponse> {
+    return this.orm.em.fork().transactional(async em => {
+      await em.execute("select set_config('lock_timeout', ?, true)", [`${this.options.lockTimeoutMs ?? 3000}ms`]);
+      const inbox = options?.inbox === undefined ? undefined : await this.reserveInbox(em, options.inbox);
+      const existing = await this.findIdentity(em, transaction);
+      if (existing.length) {
+        const response = this.replay(existing, transaction);
+        if (inbox) await this.completeInbox(em, inbox);
+        return response;
+      }
+      if (inbox !== undefined && inbox.processedAt !== null) throw new Error('Inbox concluída sem transação correspondente.');
+      if (options?.lockWallet) {
+        // Bloquear antes do INSERT evita promoção concorrente dos locks KEY SHARE da FK.
+        await this.lockWallet(em, transaction.walletId);
+      }
+      const record = wagerToRecord(transaction);
+      await em.persist(record).flush();
+      const result = await work(this.session(em));
+      if (result.transactionId !== transaction.id || result.status !== transaction.status || result.terminal !== transaction.isTerminal()) {
+        throw new Error('Resultado incompatível com a transação.');
+      }
+      wagerToRecord(transaction, record);
+      if (transaction.status === 'PENDING_REFERENCE') {
+        record.referenceDeadline = new Date(transaction.createdAt.getTime() + 86400000);
+        record.nextAttemptAt = new Date(transaction.createdAt.getTime() + 1000);
+      }
+      record.result = structuredClone(result) as unknown as JsonValue;
+      if (inbox) await this.completeInbox(em, inbox);
+      await em.flush();
+      return processingResponse(result, false);
+    });
+  }
+  private async reserveInbox(em: EntityManager, context: InboxContext): Promise<InboxRecord> {
+    const message = InboxMessage.receive(context);
+    // Serializa a identidade composta antes de locks de carteira; colisões de hash só reduzem concorrência.
+    await em.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [JSON.stringify([message.consumerName, message.messageId])]);
+    const existing = await em.findOne(InboxRecord, { consumerName: message.consumerName, messageId: message.messageId });
+    if (existing) {
+      InboxMessage.rehydrate(existing).assertSamePayload(message.payloadHash);
+      return existing;
+    }
+    const record = Object.assign(new InboxRecord(), { consumerName: message.consumerName, messageId: message.messageId,
+      payloadHash: message.payloadHash, receivedAt: message.receivedAt });
+    await em.persist(record).flush();
+    await this.options.afterInboxReserved?.();
+    return record;
+  }
+  private async completeInbox(em: EntityManager, record: InboxRecord): Promise<void> {
+    if (record.processedAt !== null) return;
+    const message = InboxMessage.rehydrate(record).complete(new Date(Math.max(Date.now(), record.receivedAt.getTime())));
+    record.processedAt = message.processedAt;
+    await em.flush();
   }
   private findIdentity(em: EntityManager, transaction: WagerTransaction): Promise<WagerRecord[]> {
     return em.find(WagerRecord, { $or: [
@@ -110,5 +141,5 @@ export class PostgresUnitOfWork implements UnitOfWork, IdempotentUnitOfWork {
 function isIdempotencyViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const candidate = error as { code?: string; constraint?: string };
-  return candidate.code === '23505' && (candidate.constraint === 'wager_idempotency_uq' || candidate.constraint === 'wager_provider_external_uq');
+  return candidate.code === '23505' && (candidate.constraint === 'wager_idempotency_uq' || candidate.constraint === 'wager_provider_external_uq' || candidate.constraint === 'inbox_message_pkey');
 }

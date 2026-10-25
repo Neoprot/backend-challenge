@@ -1,7 +1,10 @@
 import { beforeAll, afterAll, expect, test } from 'bun:test';
 import { createOrm } from '../../src/persistence/orm';
 import { PostgresUnitOfWork } from '../../src/persistence/unit-of-work';
-import { WalletRecord, WagerRecord, LedgerRecord, OutboxRecord } from '../../src/persistence/records';
+import { WalletRecord, WagerRecord, LedgerRecord, OutboxRecord, InboxRecord } from '../../src/persistence/records';
+import { SetQueueAttributesCommand } from '@aws-sdk/client-sqs';
+import { SqsConsumer } from '../../src/workers/sqs-consumer';
+import { inboxFixture } from '../support/inbox-fixture';
 import { OpenWallet } from '../../src/wallets/application/open-wallet';
 import { Money } from '../../src/shared/domain/money';
 import { testEnvironment } from '../support/environment';
@@ -66,3 +69,32 @@ test.each([['BET', '25.00'], ['WIN', '10.00'], ['BET', '101.00']] as const)('fal
   expect((events[0]!.payload as { data: { transactionId: string } }).data.transactionId).not.toBe(transactionId);
   await assertLedger(orm, wallet.id);
 });
+
+test('falha após inserir inbox não deixa linha parcial; reiniciar consumidor recupera mensagem real sem ack antecipado', async () => {
+  const f = await inboxFixture(orm);
+  try {
+    await f.sqs.send(new SetQueueAttributesCommand({ QueueUrl: f.queueUrl, Attributes: { VisibilityTimeout: '1' } }));
+    const injected = new Error('Falha após INSERT da inbox'); let reached = false, caught: unknown;
+    const faulty = new PostgresUnitOfWork(orm, { afterInboxReserved: async () => { reached = true; throw injected; } });
+    const submit = new SubmitWager(faulty, f.clock, f.ids);
+    await f.send();
+    try { await new SqsConsumer(f.sqs, f.queueUrl, submit, f.consumerName, { waitTimeSeconds: 1 }).pollOnce(); } catch (error) { caught = error; }
+    expect(reached).toBe(true); expect(caught).toBe(injected);
+    const em = orm.em.fork();
+    expect(await em.count(InboxRecord, { consumerName: f.consumerName })).toBe(0);
+    expect(await em.count(WagerRecord, { idempotencyKey: f.envelope.data.idempotencyKey })).toBe(0);
+    expect(await em.findOneOrFail(WalletRecord, { id: f.wallet.id })).toMatchObject({ balance: '100.00', version: 1 });
+    expect(await em.count(LedgerRecord, { walletId: f.wallet.id })).toBe(1);
+    expect(await em.count(OutboxRecord, { aggregateId: f.wallet.id })).toBe(1);
+    await Bun.sleep(1100);
+    expect(await new SqsConsumer(f.sqs, f.queueUrl, f.submit, f.consumerName, { waitTimeSeconds: 1 }).pollOnce()).toBe(1);
+    const fresh = orm.em.fork(), tx = await fresh.findOneOrFail(WagerRecord, { idempotencyKey: f.envelope.data.idempotencyKey });
+    expect(tx.status).toBe('PROCESSED');
+    expect(await fresh.findOneOrFail(WalletRecord, { id: f.wallet.id })).toMatchObject({ balance: '75.00', version: 2 });
+    expect((await fresh.findOneOrFail(InboxRecord, { consumerName: f.consumerName, messageId: f.envelope.messageId })).processedAt).not.toBeNull();
+    expect(await fresh.count(LedgerRecord, { transactionId: tx.id })).toBe(1);
+    expect(await fresh.count(OutboxRecord, { aggregateId: tx.id })).toBe(1);
+    expect(await fresh.count(OutboxRecord, { aggregateId: f.wallet.id })).toBe(2);
+    await assertLedger(orm, f.wallet.id);
+  } finally { await f.close(); }
+}, 15000);

@@ -744,3 +744,11 @@ wallet.balance == saldo reconstruído pelo ledger
 ### Diferenciais opcionais
 
 Teste de carga também conta como diferencial. Se fizer, exponha como `bun run test:load` e registre ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos de concorrência e outbox lag. Não há meta de RPS — a qualidade do experimento e a honestidade da análise pesam mais que o número bruto.
+
+## Consumidor SQS implementado
+
+`SqsConsumer.pollOnce()` faz long polling e encaminha o envelope validado ao mesmo `SubmitWager` usado pelo HTTP. O `messageId` do envelope identifica a mensagem no domínio; o `MessageId` do SQS não participa da deduplicação. A identidade da inbox é `(consumerName, messageId)`. Seu SHA-256 inclui o envelope validado completo, com chave de idempotência e horário; a ordem das propriedades JSON de entrada não altera o hash. Conteúdo divergente resulta em `INBOX_PAYLOAD_CONFLICT` e permanece sem ack.
+
+A reserva e a conclusão da inbox compartilham a transação PostgreSQL da carteira, transação de aposta, ledger e outbox. Uma nova mensagem para uma transação já confirmada conclui somente sua nova inbox. `DeleteMessage` ocorre após o retorno do commit, inclusive para `PENDING_REFERENCE`; erros propagam sem ack. O canal SQS é interno e confiável, sem JWT, mas o contrato do provedor e os vínculos de domínio continuam validados. FIFO é apenas uma otimização, não a garantia de processamento único.
+
+O consumidor é invocado explicitamente; o bootstrap HTTP ainda não inicia workers em segundo plano. Loop contínuo, shutdown coordenado, política completa de retry/DLQ e resolução de referências pendentes pertencem às próximas etapas. O cliente SQS deve usar timeout HTTP superior ao long polling configurado (20 segundos por padrão).

@@ -18,8 +18,9 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 10 — Consultas e reconciliação | COMPLETE |
 | 11 — Contrato HTTP e composição | COMPLETE |
 | 12 — Keycloak e autorização | COMPLETE |
-| 13 — Inbox e consumidor SQS | IN_PROGRESS |
-| 14–19 | PENDING |
+| 13 — Inbox e consumidor SQS | COMPLETE |
+| 14 — Outbox recuperável | IN_PROGRESS |
+| 15–19 | PENDING |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -220,3 +221,21 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Limitação documentada:** cooldown de busca JWKS de5s limita abuso por kids desconhecidos; IT do guard aguarda essa janela na rotação. Nenhum achado pendente.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa13.
+
+## Tarefa 13 — inbox e consumidor SQS
+
+**Status:** COMPLETE no escopo de pollOnce; supervisor/lifecycle/DLQ pertencem à tarefa15. **Execution Mode:** Delegated, inbox_tdd, revisão de conformidade pelo controlador e qualidade independente inbox_quality_review.
+
+**Arquivos:** InboxMessage, SqsConsumer, contratos compartilhados sem dependência HTTP, contexto/opções idempotentes, PostgresUnitOfWork, testes inbox/atomicity e fixture FIFO exclusiva; nota técnica no README a consolidar19.
+
+**TDD e limitação de sequência:** RED inicial unitário observado em scaffold importável (1fail/1pass); núcleo implementado depois. Os IT principais foram escritos após o núcleo e já passaram: não houve RED inicial desses IT. Revisões posteriores preservaram test-first: imutabilidade teve RED unitário; aceitação de ISO com offset/micros teve2 RED (unit e SQS real) antes do ajuste. Essa limitação procedural foi informada ao usuário; não invalida nem substitui os resultados reais de integração.
+
+**Validação:** implementador executou205 unitários/510 asserções. Controlador repetiu49 testes/303 asserções incluindo inbox, atomicity, idempotency e HTTP, todos passam; typecheck passa. Revisor independente executou59 unitários sem falhas, leu IT sem concorrer com o controlador e não encontrou achados.
+
+**Conformidade — PASS:** mesma SubmitWager do HTTP; inbox PK consumidor/messageId, hash do envelope validado inteiro (inclui horário e chave; ordem JSON irrelevante). Reserva/conclusão compartilham a SQL dos efeitos e snapshot; mensagem nova em replay cria só a nova inbox. Hash divergente propaga conflito e não recebe ack. DeleteMessage somente após commit, inclusive pendência aceita; erro antes do commit desfaz inbox/saldo/ledger/outbox. Redelivery e reinício confirmam um único efeito financeiro.
+
+**Qualidade — PASS após ajustes:** lock advisory é por identidade, não global, com timeout local antes de qualquer lock; race observa pg_blocking_pids com barreira. Inbox imutável em runtime, datas copiadas, complete idempotente e reconstrução por tentativa. Contexto abortado não é reutilizado; recuperação de unicidade ocorre em nova transação incluindo inbox. Filas de teste exclusivas e cleanupfinally, sem purgar recursos globais.
+
+**Follow-ups:** consumidor ainda é invocado explicitamente; bootstrap contínuo, renovação de visibilidade, DLQ e shutdown serão ligados na15. Aceite com processos distintos permanece na18. Sem achados de código pendentes.
+
+**Implementer Outcome:** DONE. **Próxima ação:** tarefa14.

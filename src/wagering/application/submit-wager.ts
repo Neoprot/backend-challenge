@@ -1,4 +1,5 @@
 import type { IdempotentUnitOfWork } from './idempotency';
+import type { InboxContext } from '../../messaging/domain/inbox-message';
 import type { Clock } from '../../shared/domain/clock';
 import type { Identifiers } from '../../shared/domain/identifiers';
 import type { ProcessingResponse } from './processing-result';
@@ -12,7 +13,7 @@ import { WagerTransaction } from '../domain/wager-transaction';
 import { WagerRules } from '../domain/wager-rules';
 import { WagerTransactionProcessed, WagerTransactionRejected, WagerTransactionPendingReference, WalletBalanceChanged } from '../../messaging/domain/events';
 
-export interface SubmissionContext { idempotencyKey: string; correlationId: string; causationId?: string; }
+export interface SubmissionContext { idempotencyKey: string; correlationId: string; causationId?: string; inbox?: InboxContext; }
 export class SubmitWager {
   constructor(private readonly uow: IdempotentUnitOfWork, private readonly clock: Clock, private readonly ids: Identifiers,
     private readonly sleep: (milliseconds: number) => Promise<void> = milliseconds => Bun.sleep(milliseconds)) {}
@@ -27,7 +28,9 @@ export class SubmitWager {
       const transaction = WagerTransaction.create({ ...payload, money: Money.from(payload.money),
         id, idempotencyKey: context.idempotencyKey, payloadHash: hash, createdAt });
       try {
-        return await this.uow.runIdempotent(transaction, session => this.process(transaction, session, context), { lockWallet: true });
+        return await this.uow.runIdempotent(transaction, session => this.process(transaction, session, context), {
+          lockWallet: true, ...(context.inbox === undefined ? {} : { inbox: context.inbox }),
+        });
       } catch (error) {
         if (!isTransientFailure(error)) throw error;
         if (attempt >= 2) throw new ApplicationError('PROCESSING_UNAVAILABLE', 'Processamento temporariamente indisponível. Tente novamente com a mesma chave.', 503);
