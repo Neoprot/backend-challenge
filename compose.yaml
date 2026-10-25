@@ -1,5 +1,46 @@
 name: wagering-dev
 services:
+  api:
+    image: wagering-processor:local
+    build: .
+    profiles: ["app"]
+    environment:
+      DATABASE_URL: postgresql://wager_app:local-app-only@postgres:5432/wagering
+      SQS_ENDPOINT: http://localstack:4566
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      OIDC_ISSUER: http://localhost:8180/realms/wagering
+      OIDC_AUDIENCE: wagering-api
+      OIDC_JWKS_URI: http://keycloak:8080/realms/wagering/protocol/openid-connect/certs
+      PORT: "3000"
+      REQUEST_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/wager-transactions.fifo
+      REQUEST_DLQ_URL: http://localstack:4566/queue/us-east-1/000000000000/wager-transactions-dlq.fifo
+      EVENT_QUEUE_URL: http://localstack:4566/queue/us-east-1/000000000000/wager-events.fifo
+    ports:
+      - target: 3000
+        host_ip: 127.0.0.1
+        protocol: tcp
+    depends_on:
+      postgres: { condition: service_healthy }
+      localstack: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const response = await fetch('http://127.0.0.1:3000/health/ready'); process.exit(response.ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+  migrator:
+    image: wagering-processor:local
+    build: .
+    profiles: ["tools"]
+    command: ["bun", "scripts/migrate.ts", "up"]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://wager_migrator:local-migrator-only@postgres:5432/wagering
+    depends_on:
+      postgres: { condition: service_healthy }
   postgres:
     image: postgres:17.6-alpine
     environment:

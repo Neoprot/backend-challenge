@@ -745,10 +745,150 @@ wallet.balance == saldo reconstruído pelo ledger
 
 Teste de carga também conta como diferencial. Se fizer, exponha como `bun run test:load` e registre ambiente, metodologia, throughput, p50/p95/p99, taxa de erro, conflitos de concorrência e outbox lag. Não há meta de RPS — a qualidade do experimento e a honestidade da análise pesam mais que o número bruto.
 
-## Consumidor SQS implementado
+---
 
-`SqsConsumer.pollOnce()` faz long polling e encaminha o envelope validado ao mesmo `SubmitWager` usado pelo HTTP. O `messageId` do envelope identifica a mensagem no domínio; o `MessageId` do SQS não participa da deduplicação. A identidade da inbox é `(consumerName, messageId)`. Seu SHA-256 inclui o envelope validado completo, com chave de idempotência e horário; a ordem das propriedades JSON de entrada não altera o hash. Conteúdo divergente resulta em `INBOX_PAYLOAD_CONFLICT` e permanece sem ack.
+# Execução da implementação
 
-A reserva e a conclusão da inbox compartilham a transação PostgreSQL da carteira, transação de aposta, ledger e outbox. Uma nova mensagem para uma transação já confirmada conclui somente sua nova inbox. `DeleteMessage` ocorre após o retorno do commit, inclusive para `PENDING_REFERENCE`; erros propagam sem ack. O canal SQS é interno e confiável, sem JWT, mas o contrato do provedor e os vínculos de domínio continuam validados. FIFO é apenas uma otimização, não a garantia de processamento único.
+O enunciado acima foi preservado. A implementação usa Bun 1.3.11, TypeScript estrito, NestJS 12.2.0, MikroORM 7.2.5, PostgreSQL 17.6, SQS no LocalStack 4.11.1 e Keycloak 26.5.2. As decisões e a matriz de testes estão em [ARCHITECTURE.md](ARCHITECTURE.md).
 
-O consumidor é invocado explicitamente; o bootstrap HTTP ainda não inicia workers em segundo plano. Loop contínuo, shutdown coordenado, política completa de retry/DLQ e resolução de referências pendentes pertencem às próximas etapas. O cliente SQS deve usar timeout HTTP superior ao long polling configurado (20 segundos por padrão).
+## Preparação local
+
+Instale Bun 1.3.11 e Docker com Compose. No Windows, utilize containers Linux no Docker Desktop. Copie `.env.example` para `.env`; o arquivo contém apenas credenciais descartáveis de demonstração e não deve ser reutilizado em produção. Os comandos externos abaixo usam RTK conforme a convenção deste repositório.
+
+```powershell
+rtk proxy bun install --frozen-lockfile
+rtk proxy docker compose up -d --wait
+```
+
+Sem profiles, o Compose inicia somente PostgreSQL, LocalStack e Keycloak. Desenvolvimento usa as portas `55432`, `4566` e `8180`; os testes usam outro projeto, outros volumes e as portas `55433`, `4567` e `8181`.
+
+### Aplicação nativa
+
+Com `.env` copiado e a infraestrutura saudável:
+
+```powershell
+rtk proxy bun run migration:up
+rtk proxy bun run start
+```
+
+`start` inicia HTTP autenticado, consumidor de comandos SQS, publisher da outbox e worker de referências. A API fica em `http://localhost:3000`. `start:dev` executa esse runtime com watch; `start:workers` é o alias explícito. `start:http` inicia somente HTTP e é útil para testes ou diagnóstico, mas não consome filas nem resolve referências pendentes.
+
+### Três instâncias no Compose
+
+O migrator recebe apenas a credencial de migration. Os containers da API usam `wager_app` e não recebem `MIGRATION_DATABASE_URL`.
+
+```powershell
+rtk proxy docker compose --profile tools run --rm --build migrator
+rtk proxy docker compose --profile app up -d --build --wait --scale api=3
+rtk proxy docker compose ps
+rtk proxy docker compose port --index 1 api 3000
+```
+
+Cada instância recebe uma porta dinâmica, publicada somente em `127.0.0.1`. O último comando informa a porta da primeira instância; repita com `--index 2` ou `3` para as demais. O issuer público continua `http://localhost:8180/realms/wagering`; dentro do container, as chaves JWKS são buscadas em `http://keycloak:8080`, sem alterar a validação do issuer.
+
+Para parar apenas a aplicação:
+
+```powershell
+rtk proxy docker compose --profile app stop api
+```
+
+Não execute migrations reversas em um ambiente com dados que deseje preservar. `migration:down` reverte a última migration; as migrations são versionadas e a reversibilidade é exercitada no banco exclusivo dos testes.
+
+## Seed e demonstração completa
+
+Se estiver usando Compose, ajuste `API_BASE_URL` no `.env` para o endereço informado por `compose port`, por exemplo `http://127.0.0.1:PORTA`. Para a aplicação nativa, o padrão é `http://localhost:3000`.
+
+```powershell
+rtk proxy bun run seed:local
+```
+
+Cada execução cria um novo jogador e uma carteira de `100.00 BRL`, faz uma BET de `25.00` por HTTP, repete exatamente a mesma requisição e envia uma WIN de `10.00` pela SQS. O script aguarda o worker confirmar a WIN e exige reconciliação consistente com três lançamentos e saldo `85.00 BRL`. A saída contém os IDs da carteira e das transações, confirmação do replay e reconciliação. Tokens e client secrets não são impressos. O seed recusa destinos remotos, redirects, URLs com credenciais, query ou fragmento; se os workers não estiverem ativos, ele falha com prazo limitado.
+
+## Tokens e chamadas HTTP
+
+O realm local fornece estes clientes de serviço:
+
+| Cliente | Secret local | Papel e escopo |
+| --- | --- | --- |
+| `provider-aurora` | `local-aurora-only` | `wagering-provider`, `providerId=aurora` |
+| `provider-horizonte` | `local-horizonte-only` | `wagering-provider`, `providerId=horizonte` |
+| `operations-console` | `local-operations-only` | `wagering-admin`, consultas administrativas |
+
+O papel administrativo permite abrir e consultar carteiras, ledger, reconciliação e métricas. O envio de apostas exige o papel de provedor e claim `providerId` correspondente; um token administrativo sozinho não substitui essa identidade. Provedores consultam apenas as próprias transações, inclusive na rota por ID interno.
+
+O exemplo versionado em [scripts/demo-http.ps1](scripts/demo-http.ps1) obtém tokens por `client_credentials`, abre uma carteira, demonstra replay e consulta ledger/reconciliação. Os tokens permanecem em variáveis do processo. Executar o arquivo evita que outra camada de CLI remova as aspas do script no Windows. O parâmetro aceita somente HTTP loopback, e as chamadas têm timeout e redirects desativados.
+
+```powershell
+rtk proxy powershell -NoProfile -File scripts/demo-http.ps1
+# Para a porta dinâmica do Compose, substitua PORTA pelo valor de compose port:
+rtk proxy powershell -NoProfile -File scripts/demo-http.ps1 -ApiBaseUrl http://127.0.0.1:PORTA
+```
+
+A primeira aposta retorna `idempotentReplay=false`; a segunda preserva o resultado financeiro original e retorna `true`. Uma consulta por `GET /wagering/transactions/{transactionId}` ou `GET /providers/aurora/wagering/transactions/{externalTransactionId}` usa o token do provedor ou administrativo. `Idempotency-Key` é globalmente única; `externalTransactionId` é único no escopo de `providerId`.
+
+| Resultado | HTTP |
+| --- | --- |
+| Carteira criada | `201` |
+| Processamento bem-sucedido ou seu replay | `200` |
+| Referência ainda não disponível | `202` |
+| Contrato inválido | `400` |
+| Token ausente ou inválido | `401` |
+| Identidade sem acesso ao recurso | `403` |
+| Carteira ou transação inexistente | `404` |
+| Identidade idempotente com conteúdo divergente ou carteira já existente | `409` |
+| Rejeição de negócio persistida ou seu replay | `422` |
+| Dependência indisponível ou retries transitórios esgotados | `503` |
+
+`FAILED` representa falha técnica permanente atribuível a uma operação válida, com resultado técnico `500`. Não é usado para indisponibilidade temporária nem para rejeição de negócio. Toda resposta de erro inclui `correlationId`; a aplicação não devolve stack, SQL ou credenciais.
+
+## Mensagens SQS reproduzíveis
+
+O seed já demonstra o envio real. Para um envio manual, crie `seed-message.json` em UTF-8, substituindo `PLAYER_UUID` e `WALLET_UUID` pelos IDs retornados pelo seed. Use IDs novos para uma nova operação; para testar redelivery, preserve o envelope completo.
+
+```json
+{
+  "messageId": "demo-loss-1",
+  "type": "WagerTransactionRequested",
+  "occurredAt": "2026-10-25T00:00:00.000Z",
+  "data": {
+    "providerId": "aurora",
+    "externalTransactionId": "demo-loss-1",
+    "idempotencyKey": "demo-loss-key-1",
+    "playerId": "PLAYER_UUID",
+    "walletId": "WALLET_UUID",
+    "roundId": "round-demo",
+    "gameId": "game-demo",
+    "kind": "LOSS",
+    "money": { "amount": "0.00", "currency": "BRL" }
+  }
+}
+```
+
+```powershell
+rtk proxy docker compose cp seed-message.json localstack:/tmp/wager-seed-message.json
+rtk proxy docker compose exec -T localstack awslocal sqs send-message --queue-url http://localhost:4566/queue/us-east-1/000000000000/wager-transactions.fifo --message-body file:///tmp/wager-seed-message.json --message-group-id demo-wallet --message-deduplication-id demo-loss-transport-1
+```
+
+Consulte `GET /providers/aurora/wagering/transactions/demo-loss-1`. LOSS confirma a transação e evento, sem alterar saldo, versão da carteira ou ledger. Para forçar uma nova entrega dentro da janela de deduplicação FIFO, altere somente `--message-deduplication-id`; a inbox continuará reconhecendo o `messageId` do envelope. SQS é um canal interno confiável, sem JWT; o contrato e os vínculos de domínio continuam validados. A identidade da inbox é `(consumerName, messageId)` e seu hash inclui o envelope validado completo.
+
+## Saúde, métricas e diagnóstico
+
+`GET /health/live` e `GET /health/ready` são públicos. Liveness independe de PostgreSQL/SQS; readiness verifica os dois com timeout e cancelamento. `GET /metrics` exige administrador e retorna métricas textuais com labels limitadas. Contadores são locais à instância; transições confirmadas e replays têm contagens separadas. O lag da outbox representa a última leitura válida do banco.
+
+Logs da aplicação são JSON e incluem correlação e IDs conhecidos. Tokens, secrets, corpos financeiros completos e mensagens arbitrárias de erro são omitidos. Kysely pode emitir seu próprio diagnóstico de cancelamento SQL; o teste verifica que a consulta cancelada realmente desaparece do servidor.
+
+## Verificação automatizada
+
+O projeto `wagering-test` é exclusivo dos testes e pode sofrer stop/start de seus serviços. Mantenha a aplicação com profile `app` fora desse projeto: o harness cria e encerra seus próprios processos.
+
+```powershell
+rtk proxy docker compose -f compose.yaml -f compose.test.yaml up -d --wait
+rtk proxy bun run typecheck
+rtk proxy bun run test:unit
+rtk proxy bun run test:it
+rtk proxy bun run test:concurrency
+```
+
+Os IT usam PostgreSQL, SQS e Keycloak reais. O harness inicia três processos Bun com PIDs, portas e sessões independentes, testa restart e morte em pontos críticos e executa SIGTERM real em Linux. A etapa Linux constrói a imagem e roda depois dos testes nativos para isolar os scans globais dos workers. Não execute as suítes de integração e concorrência em paralelo.
+
+O [checkpoint do plano](docs/superpowers/plans/checkpoint-plan-2026-10-24-wagering.md) registra resultados reais, RED/GREEN, revisões e limitações de sequência TDD. A [matriz de rastreabilidade](ARCHITECTURE.md#rastreabilidade-e-evidências) aponta os testes por requisito. Não foi realizado benchmark de carga.

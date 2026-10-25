@@ -24,7 +24,7 @@ Plano aprovado pelo usuário. Execução na branch codex/wagering-processor, em 
 | 16 — Reprocessamento de referências | COMPLETE |
 | 17 — Logs, métricas e saúde | COMPLETE |
 | 18 — Harness multiprocessos e races | COMPLETE |
-| 19 — Documentação, reprodução e aceite | PENDING |
+| 19 — Documentação, reprodução e aceite | COMPLETE |
 
 ## Tarefa 1 — bootstrap e ambiente real
 
@@ -331,3 +331,19 @@ Skill requesting-code-review aplicada. Agente financial_review inspecionou a fai
 **Revisão e validação final:** conformidade — PASS; qualidade independente — PASS após dois P2 com RED antes das correções. A perda do supervisor durante startup/imports agora encerra o filho, inclusive se o canal já estiver fechado. Falha de docker run após criar o container agora remove o recurso por nome e owner próprios; erros de cleanup são preservados. Runner completo passou: 14 testes nativos/97 asserções e dois Linux/26, em invocações sequenciais. Unitários: 245/706; typecheck passou. Controlador repetiu 244 unitários antes do último ajuste, quatro unitários Linux após ele e os aceites Linux reais; revisor repetiu os 245 unitários e typecheck. Nenhum processo filho ou container de sinais permaneceu ativo. Aceites complementares das tarefas 9, 14 e 15 encerrados.
 
 **Implementer Outcome:** DONE. **Próxima ação:** tarefa 19.
+
+## Tarefa 19 — documentação, reprodução e aceite
+
+**Status:** COMPLETE. **Execution Mode:** Delegated, delivery_docs_tdd, para documentação/seed; controlador integrou Compose, imagem e scripts e executou as verificações finais.
+
+**Entrega:** README mantém integralmente o enunciado original, comprovado por comparação com 411c1bc, e substitui o apêndice temporário por instruções de uso. ARCHITECTURE registra decisões, alternativas, contratos, limites e rastreabilidade. Seed local usa Keycloak/HTTP/SQS reais, confirma replay e espera o processamento assíncrono antes de reconciliar. Guardas de destinos locais e fluxo do seed tiveram RED antes do código; configuração Compose/Docker e scripts de execução são ajustes mecânicos, verificados pelo uso real.
+
+**Runtime reproduzível:** Compose sem profiles inicia somente infraestrutura. Migrator de profile tools recebe apenas sua credencial e executa migrations em comando separado, evitando serviço one-shot no up --wait. Profile app inicia três APIs com workers, portas dinâmicas somente em loopback e healthchecks. Start padrão inicia o runtime completo; start:http preserva a composição isolada. Imagem usa Bun 1.3.11, usuário uid 1000 e copia somente código/configuração necessários, sem .env nem módulos de teste. Inspeção real confirmou role wager_app e ausência de MIGRATION_DATABASE_URL nos containers da aplicação.
+
+**Validação do controlador:** install --frozen-lockfile passou, com 149 instalações e nenhuma mudança; typecheck passou; 259 unitários/767 asserções passaram. O ambiente wagering-test foi recriado após conferir labels dos serviços e do volume, preservando o projeto dev separado. A suíte IT passou com 132 testes/950 asserções em 18 arquivos, mais preflight repetido de três testes/15 asserções. Depois, o runner de concorrência passou com 14 testes nativos/97 asserções e dois Linux/26, sequencialmente. Nenhuma suíte está sendo tratada como benchmark.
+
+**Demonstração real:** infraestrutura dev nova saudável, duas migrations aplicadas pelo container migrator, três instâncias da aplicação saudáveis. Seed autenticado confirmou carteira 100.00, BET 25.00, replay sem novo débito, WIN 10.00 via SQS e saldo 85.00 BRL reconciliado com três lançamentos. Nenhum token ou segredo foi impresso. O exemplo PowerShell foi versionado como arquivo para evitar perda de aspas em camadas de shell/RTK; passou com replay, saldo 75.00 e reconciliação de dois lançamentos, e recusou destino remoto antes de chamadas.
+
+**Revisão final — PASS:** conformidade pelo controlador e qualidade independente por delivery_quality_review, sem achados acionáveis. O revisor repetiu 259 unitários/767 asserções e typecheck. Após estabilizar scripts/documentação, o controlador reconstruiu a imagem, recriou as três APIs e repetiu seed e demo contra os containers finais, ambos com sucesso. Enunciado original preservado, stack exigida respeitada e matriz requisito → testes documentada. Limites do LocalStack, entrega at-least-once e histórico TDD permanecem explícitos.
+
+**Implementer Outcome:** DONE. Todas as 19 tarefas concluídas. Branch codex/wagering-processor baseada em main/411c1bc; integração ou publicação aguardam escolha do usuário. Worktree preservado para revisão.
