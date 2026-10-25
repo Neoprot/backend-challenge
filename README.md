@@ -10,7 +10,8 @@ Para revisar a entrega, siga o [passo a passo de execução e testes](docs/TESTI
 
 Instale Bun 1.3.11 e Docker com Compose. No Windows, utilize containers Linux no Docker Desktop. Copie `.env.example` para `.env`; o arquivo contém apenas credenciais descartáveis de demonstração e não deve ser reutilizado em produção.
 
-```powershell
+```sh
+bun run setup:env
 bun install --frozen-lockfile
 docker compose up -d --wait
 ```
@@ -21,7 +22,7 @@ Sem profiles, o Compose inicia somente PostgreSQL, LocalStack e Keycloak. Desenv
 
 Com `.env` copiado e a infraestrutura saudável:
 
-```powershell
+```sh
 bun run migration:up
 bun run start
 ```
@@ -32,7 +33,7 @@ bun run start
 
 O migrator recebe apenas a credencial de migration. Os containers da API usam `wager_app` e não recebem `MIGRATION_DATABASE_URL`.
 
-```powershell
+```sh
 docker compose --profile tools run --rm --build migrator
 docker compose --profile app up -d --build --wait --scale api=3
 docker compose ps
@@ -43,7 +44,7 @@ Cada instância recebe uma porta dinâmica, publicada somente em `127.0.0.1`. O 
 
 Para parar apenas a aplicação:
 
-```powershell
+```sh
 docker compose --profile app stop api
 ```
 
@@ -53,7 +54,7 @@ Não execute migrations reversas em um ambiente com dados que deseje preservar. 
 
 Se estiver usando Compose, ajuste `API_BASE_URL` no `.env` para o endereço informado por `compose port`, por exemplo `http://127.0.0.1:PORTA`. Para a aplicação nativa, o padrão é `http://localhost:3000`.
 
-```powershell
+```sh
 bun run seed:local
 ```
 
@@ -71,12 +72,12 @@ O realm local fornece estes clientes de serviço:
 
 O papel administrativo permite abrir e consultar carteiras, ledger, reconciliação e métricas. O envio de apostas exige o papel de provedor e claim `providerId` correspondente; um token administrativo sozinho não substitui essa identidade. Provedores consultam apenas as próprias transações, inclusive na rota por ID interno.
 
-O exemplo versionado em [scripts/demo-http.ps1](scripts/demo-http.ps1) obtém tokens por `client_credentials`, abre uma carteira, demonstra replay e consulta ledger/reconciliação. Os tokens permanecem em variáveis do processo. Executar o arquivo evita que outra camada de CLI remova as aspas do script no Windows. O parâmetro aceita somente HTTP loopback, e as chamadas têm timeout e redirects desativados.
+O exemplo em [scripts/demo-http.ts](scripts/demo-http.ts) roda com Bun em Linux, macOS e Windows. Obtém tokens por `client_credentials`, abre uma carteira, demonstra replay e consulta ledger/reconciliação. Os tokens permanecem no processo. Aceita somente HTTP loopback, com timeout e redirects desativados.
 
-```powershell
-powershell -NoProfile -File scripts/demo-http.ps1
+```sh
+bun run demo:http
 # Para a porta dinâmica do Compose, substitua PORTA pelo valor de compose port:
-powershell -NoProfile -File scripts/demo-http.ps1 -ApiBaseUrl http://127.0.0.1:PORTA
+bun run demo:http http://127.0.0.1:PORTA
 ```
 
 A primeira aposta retorna `idempotentReplay=false`; a segunda preserva o resultado financeiro original e retorna `true`. Uma consulta por `GET /wagering/transactions/{transactionId}` ou `GET /providers/aurora/wagering/transactions/{externalTransactionId}` usa o token do provedor ou administrativo. `Idempotency-Key` é globalmente única; `externalTransactionId` é único no escopo de `providerId`.
@@ -129,7 +130,7 @@ O seed já demonstra o envio real. Para um envio manual, crie `seed-message.json
 }
 ```
 
-```powershell
+```sh
 docker compose cp seed-message.json localstack:/tmp/wager-seed-message.json
 docker compose exec -T localstack awslocal sqs send-message --queue-url http://localhost:4566/queue/us-east-1/000000000000/wager-transactions.fifo --message-body file:///tmp/wager-seed-message.json --message-group-id demo-wallet --message-deduplication-id demo-loss-transport-1
 ```
@@ -146,7 +147,7 @@ Logs da aplicação são JSON e incluem correlação e IDs conhecidos. Tokens, s
 
 O projeto `wagering-test` é exclusivo dos testes e pode sofrer stop/start de seus serviços. Mantenha a aplicação com profile `app` fora desse projeto: o harness cria e encerra seus próprios processos.
 
-```powershell
+```sh
 docker compose -f compose.yaml -f compose.test.yaml up -d --wait
 bun run typecheck
 bun run test:unit

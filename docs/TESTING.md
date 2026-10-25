@@ -1,13 +1,13 @@
 # Guia de execução e testes
 
-Abra um terminal na pasta do repositório, na branch `codex/feat-distributed-wagering`. São necessários Bun 1.3.11 e Docker com Compose; no Windows, utilize containers Linux no Docker Desktop.
+Abra um terminal na pasta do repositório, na branch `feat/distributed-wagering`. São necessários Bun 1.3.11 e Docker com Compose; no Windows, utilize containers Linux no Docker Desktop. Os comandos com Bun e Compose são os mesmos em Linux, macOS e Windows.
 
 ## 1. Preparar o ambiente
 
-Na primeira execução, copie o exemplo. `-NoClobber` preserva um `.env` que já exista.
+Na primeira execução, copie o exemplo com o comando abaixo. Um `.env` existente será preservado.
 
-```powershell
-powershell -NoProfile -Command "Copy-Item -LiteralPath .env.example -Destination .env -NoClobber"
+```sh
+bun run setup:env
 bun install --frozen-lockfile
 ```
 
@@ -15,7 +15,7 @@ O `.env.example` contém banco da aplicação, credencial separada de migrations
 
 ## 2. Iniciar PostgreSQL, SQS e Keycloak
 
-```powershell
+```sh
 docker compose up -d --wait postgres localstack keycloak
 ```
 
@@ -27,7 +27,7 @@ Use uma das alternativas abaixo. Ambas iniciam HTTP, consumidor SQS, publisher d
 
 ### Alternativa A: Bun local
 
-```powershell
+```sh
 bun run migration:up
 bun run start
 ```
@@ -36,7 +36,7 @@ Mantenha esse terminal aberto. A API fica em `http://localhost:3000`. Use outro 
 
 ### Alternativa B: três instâncias no Docker
 
-```powershell
+```sh
 docker compose --profile tools run --rm --build migrator
 docker compose --profile app up -d --build --wait --scale api=3
 docker compose --profile app ps
@@ -49,7 +49,7 @@ O Compose configura os endereços internos dos serviços. Não substitua os ende
 
 ## 4. Executar a demonstração completa
 
-```powershell
+```sh
 bun run seed:local
 ```
 
@@ -63,10 +63,10 @@ O script obtém tokens reais no Keycloak e executa:
 
 Confira a saída: `replayConfirmed: true`, saldo `85.00 BRL`, `consistent: true` e `checkedEntries: 3`. Cada execução cria novos dados de demonstração. Os tokens não são impressos.
 
-Para testar também o exemplo HTTP em PowerShell:
+Para testar também o exemplo HTTP portátil:
 
-```powershell
-powershell -NoProfile -File scripts/demo-http.ps1 -ApiBaseUrl http://localhost:3000
+```sh
+bun run demo:http http://localhost:3000
 ```
 
 No Docker, substitua a URL pela porta descoberta no passo 3. Esse exemplo cria outra carteira, faz BET e replay e consulta ledger/reconciliação. O resultado esperado é saldo `75.00 BRL`, mesma transação no replay e dois lançamentos.
@@ -75,7 +75,7 @@ No Docker, substitua a URL pela porta descoberta no passo 3. Esse exemplo cria o
 
 Abra `/health/live` e `/health/ready` na URL da API. Devem responder `200`, com `alive` e `ready`, respectivamente. São endpoints públicos.
 
-Uma chamada sem token a `/wallets/ID`, `/wagering/transactions/ID` ou `/metrics` deve ser recusada com `401`. O exemplo PowerShell e o seed já demonstram chamadas autenticadas. Os testes de identidade verificam também `403` por provedor/papel incorreto, assinatura, expiração, issuer, audience e rotação real de chaves.
+Uma chamada sem token a `/wallets/ID`, `/wagering/transactions/ID` ou `/metrics` deve ser recusada com `401`. O exemplo HTTP e o seed já demonstram chamadas autenticadas. Os testes de identidade verificam também `403` por provedor/papel incorreto, assinatura, expiração, issuer, audience e rotação real de chaves.
 
 ## 6. Executar toda a verificação automatizada
 
@@ -83,7 +83,7 @@ Os testes utilizam o projeto separado `wagering-test`, banco/volume próprios e 
 
 Execute os comandos nesta ordem, sem rodar integração e concorrência em paralelo:
 
-```powershell
+```sh
 docker compose -f compose.yaml -f compose.test.yaml up -d --wait postgres localstack keycloak
 bun run typecheck
 bun run test:unit
@@ -98,7 +98,11 @@ bun run test:concurrency
 | `test:it` | PostgreSQL/SQS/Keycloak reais, atomicidade, constraints, ledger imutável, precisão, HTTP, autenticação, referências, inbox/outbox, DLQ e quedas reais das dependências |
 | `test:concurrency` | Três processos independentes, 50 BET duplicadas, disputa de saldo, independência entre carteiras, reversão única, publishers concorrentes, reinício, morte após commit/envio e SIGTERM real em Linux |
 
-Todos os comandos devem terminar com código zero. A última validação da implementação registrou **259 unitários, 132 IT e 16 testes de concorrência/recuperação**, todos aprovados, além de typecheck e demonstrações reais. O preflight de três testes é repetido dentro dos IT e não está somado novamente.
+Todos os comandos devem terminar com código zero. A validação de 25/10/2026 registrou **262 unitários, 132 IT e 16 testes de concorrência/recuperação**, todos aprovados, além de typecheck e demonstrações reais. O preflight de três testes é repetido dentro dos IT e não está somado novamente.
+
+Os 262 unitários também passaram em Bun 1.3.11 dentro de um container Linux, incluindo a demonstração HTTP e criação/preservação do `.env`. Os IT e o harness foram acionados no Windows; os dois cenários de SIGTERM executaram em Linux via Docker. macOS não foi executado nesta validação: os scripts usam APIs portáteis do Bun/Node e não exigem PowerShell. No Linux/macOS, o `init.sh` do LocalStack é executado dentro do container, como no Windows.
+
+O roteiro de execução nativa foi exercitado desde a criação do `.env`, passando por instalação congelada, migrations, `start`, seed e demonstração HTTP. A alternativa Docker também foi construída, migrada e iniciada com três instâncias saudáveis; a demonstração passou na porta dinâmica. Foram reutilizados os volumes locais existentes, sem apagar dados; as migrations de desenvolvimento já estavam aplicadas. A reversibilidade foi verificada na infraestrutura isolada dos IT.
 
 A matriz detalhada está em [ARCHITECTURE.md](../ARCHITECTURE.md#rastreabilidade-e-evidências). O [checkpoint](superpowers/plans/checkpoint-plan-2026-10-24-wagering.md) registra as evidências e revisões.
 
@@ -106,7 +110,7 @@ A matriz detalhada está em [ARCHITECTURE.md](../ARCHITECTURE.md#rastreabilidade
 
 Para conferir containers e logs do runtime Docker:
 
-```powershell
+```sh
 docker compose --profile app ps
 docker compose --profile app logs --tail 100 api
 ```
@@ -115,7 +119,7 @@ Se o seed não encontrar a API, confira `API_BASE_URL` e a porta atual. Se a WIN
 
 Para parar as instâncias Docker e a infraestrutura, preservando os volumes:
 
-```powershell
+```sh
 docker compose --profile app stop api
 docker compose stop postgres localstack keycloak
 docker compose -f compose.yaml -f compose.test.yaml stop postgres localstack keycloak
