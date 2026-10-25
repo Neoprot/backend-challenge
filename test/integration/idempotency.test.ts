@@ -130,4 +130,3 @@ test('falha do callback desfaz reserva e evento; nova tentativa pode concluir', 
  expect(response.idempotentReplay).toBe(false);
  await assertLedger(orm, f.wallet.id);
 });
-

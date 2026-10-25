@@ -45,4 +45,3 @@ export function canonicalPayload(input: unknown): { payload: WagerPayload; hash:
   if (payload.referenceExternalTransactionId === payload.externalTransactionId) invalid();
   return { payload, hash: createHash('sha256').update(JSON.stringify(sorted(payload))).digest('hex') };
 }
-

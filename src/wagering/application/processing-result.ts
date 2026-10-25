@@ -6,4 +6,3 @@ export type ProcessingResponse = ProcessingResult & { idempotentReplay: boolean 
 export function processingResponse(result: ProcessingResult, replay: boolean): ProcessingResponse {
   return { ...structuredClone(result), idempotentReplay: replay };
 }
-

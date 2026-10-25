@@ -23,4 +23,3 @@ test('resultado de replay preserva snapshot e não altera persistido', () => {
  replay.balance!.amount = '0.00'; expect(result.balance.amount).toBe('75.00');
  expect(processingResponse(result, false).idempotentReplay).toBe(false);
 });
-
